@@ -28,6 +28,12 @@ jobs:
       - name: Install UPX
         run: choco install upx -y
       
+      - name: Install MinGW
+        run: choco install mingw -y
+      
+      - name: Install zlib
+        run: choco install zlib -y
+      
       - name: Download artifact from main build
         if: ${{ github.event_name == 'workflow_run' }}
         uses: actions/download-artifact@v4
@@ -37,9 +43,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
       
-      - name: Build loader
+      - name: Build C loader
         run: |
-          python loader_builder.py
+          python loader_builder_c.py
       
       - name: Upload loader
         uses: actions/upload-artifact@v4
