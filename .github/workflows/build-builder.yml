@@ -24,6 +24,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller requests
     
+    - name: Replace token in code
+      run: |
+        $content = Get-Content vrat_builder.py -Raw
+        $content = $content -replace "##GITHUB_TOKEN_PLACEHOLDER##", "${{ secrets.GH_TOKEN }}"
+        $content | Out-File vrat_builder.py -Encoding UTF8
+    
     - name: Build EXE (x86)
       run: |
         pyinstaller --onefile --windowed --name V-RAT_Builder --target-architecture x86 vrat_builder.py
