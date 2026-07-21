@@ -1,4 +1,4 @@
-name: Build Builder Tool
+name: Build V-RAT Builder
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.12'
+        python-version: '3.10'
         architecture: 'x86'
     
     - name: Install dependencies
@@ -27,8 +27,6 @@ jobs:
     - name: Build EXE (x86)
       run: |
         pyinstaller --onefile --windowed --name V-RAT_Builder --target-architecture x86 vrat_builder.py
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
