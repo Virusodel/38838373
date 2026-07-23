@@ -1,6 +1,24 @@
 import sys
 import os
-import ctypes
+
+# 2. Windows 7 FIX (ДОБАВИТЬ)
+if sys.platform == 'win32':
+    try:
+        system_root = os.environ.get('SystemRoot', 'C:\\Windows')
+        sys_paths = [
+            os.path.join(system_root, 'System32'),
+            os.path.join(system_root, 'SysWOW64'),
+            os.path.dirname(sys.executable)
+        ]
+        for path in sys_paths:
+            if path not in sys.path:
+                sys.path.append(path)
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+    except:
+        pass
+
+# 3. Остальные импорты
 import win32con
 import win32gui
 import win32api
