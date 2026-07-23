@@ -1,5 +1,4 @@
 name: Build WinLocker
-
 on:
   push:
     branches: [ main, master ]
@@ -11,7 +10,6 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -30,7 +28,7 @@ jobs:
     
     - name: Build executable
       run: |
-        pyinstaller --onefile --windowed --uac-admin --name WinLocker --hidden-import=win32api --hidden-import=win32con --hidden-import=win32gui --hidden-import=win32security --hidden-import=ctypes --hidden-import=tkinter --hidden-import=threading --hidden-import=subprocess --hidden-import=shutil --hidden-import=tempfile --hidden-import=time --hidden-import=os --hidden-import=sys --clean --noconfirm winlocker.py
+        pyinstaller --onefile --windowed --uac-admin --name WinLocker --hidden-import=win32api --hidden-import=win32con --hidden-import=win32gui --hidden-import=win32security --hidden-import=ctypes --hidden-import=tkinter --hidden-import=threading --hidden-import=subprocess --hidden-import=shutil --hidden-import=tempfile --hidden-import=time --hidden-import=os --hidden-import=sys --hidden-import=platform --hidden-import=socket --clean --noconfirm winlocker.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -48,5 +46,3 @@ jobs:
         files: dist/WinLocker.exe
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
