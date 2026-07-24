@@ -19,6 +19,8 @@
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "msimg32.lib")
 
 using namespace std;
 
