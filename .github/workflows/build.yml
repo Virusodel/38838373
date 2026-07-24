@@ -1,4 +1,4 @@
-name: Build WinLocker C++
+name: Build GDI Trojan Ultimate
 
 on:
   push:
@@ -21,15 +21,15 @@ jobs:
       with:
         arch: x86
     
-    - name: Build WinLocker
+    - name: Build Trojan
       run: |
-        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:WinLocker.exe winlocker.cpp user32.lib shell32.lib advapi32.lib shlwapi.lib comctl32.lib psapi.lib netapi32.lib gdi32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:GDITrojan.exe gdi_trojan_ultimate.cpp user32.lib gdi32.lib winmm.lib advapi32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: WinLocker
-        path: WinLocker.exe
+        name: GDITrojan
+        path: GDITrojan.exe
         retention-days: 90
     
     - name: Create Release
@@ -37,7 +37,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v1.0.${{ github.run_number }}
-        name: WinLocker C++ v1.0.${{ github.run_number }}
-        files: WinLocker.exe
+        name: GDI Trojan v1.0.${{ github.run_number }}
+        files: GDITrojan.exe
         draft: false
         prerelease: false
