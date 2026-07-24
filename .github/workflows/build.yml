@@ -23,7 +23,7 @@ jobs:
     
     - name: Build Trojan
       run: |
-        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:GDITrojan.exe gdi_trojan_ultimate.cpp user32.lib gdi32.lib winmm.lib advapi32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:GDITrojan.exe gdi_trojan_ultimate.cpp user32.lib gdi32.lib winmm.lib advapi32.lib shell32.lib msimg32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
