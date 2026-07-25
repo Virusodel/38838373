@@ -1,4 +1,4 @@
-// gdi_trojan_ultimate.cpp - ПОЛНЫЙ ПИЗДЕЦ ВЕРСИЯ
+// raznos
 #define _CRT_SECURE_NO_WARNINGS
 #define _WIN32_WINNT 0x0601
 #define WINVER 0x0601
