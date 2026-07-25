@@ -680,7 +680,7 @@ DWORD WINAPI pendulumSwing(LPVOID lpvd) {
     return 0;
 }
 
-// ==================== ЭФФЕКТ 17: ЭСКАЛАТОР (новый) ====================
+// ==================== ЭФФЕКТ: ЭСКАЛАТОР (ЗИГ-ЗАГ В ПРАВЫЙ НИЖНИЙ УГОЛ) ====================
 DWORD WINAPI escalator(LPVOID lpvd) {
     int w = GetSystemMetrics(SM_CXSCREEN);
     int h = GetSystemMetrics(SM_CYSCREEN);
@@ -688,28 +688,60 @@ DWORD WINAPI escalator(LPVOID lpvd) {
     HDC mdc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     SelectObject(mdc, bmp);
+    
     int phase = 0;
+    double totalShiftX = 0;
+    double totalShiftY = 0;
+    
     while (!stopEffects) {
         hdc = GetDC(0);
         BitBlt(mdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
         phase++;
-        int shiftY = (int)(h * 0.1 * sin(phase * 0.02));
-        int shiftX = (int)(w * 0.05 * cos(phase * 0.015));
-        // Сдвиг с размытием
+        
+        // Постоянная скорость
+        totalShiftX += 6.0;
+        totalShiftY += 4.0;
+        
+        // Зиг-заг
+        double zigzag = 35.0 * sin(phase * 0.07 + totalShiftX * 0.008);
+        double zigzagY = 15.0 * cos(phase * 0.05 + totalShiftY * 0.01);
+        
         for (int y = 0; y < h; y += 2) {
-            int offsetY = (int)(shiftY * sin(y * 0.01 + phase * 0.01));
-            int offsetX = (int)(shiftX * cos(y * 0.01 + phase * 0.01));
+            int offsetX = (int)(zigzag * (1.0 - (double)y / h) + totalShiftX * 0.3);
+            int offsetY = (int)(zigzagY * (1.0 - (double)y / h) + totalShiftY * 0.3 + y * 0.01);
+            
             BitBlt(hdc, offsetX, y + offsetY, w, 2, mdc, 0, y, SRCCOPY);
-            // Размытие
-            if (abs(offsetY) > 5) {
-                BLENDFUNCTION bf = {AC_SRC_OVER, 0, 20, 0};
+            
+            if (abs(offsetX) > 5 || abs(offsetY) > 5) {
+                BLENDFUNCTION bf = {AC_SRC_OVER, 0, 15, 0};
                 AlphaBlend(hdc, offsetX/2, y + offsetY/2, w, 2, mdc, 0, y, w, 2, bf);
+                AlphaBlend(hdc, offsetX/4, y + offsetY/4, w/2, 2, mdc, 0, y, w/2, 2, bf);
             }
         }
+        
+        static HDC tailDC = NULL;
+        static HBITMAP tailBmp = NULL;
+        if (!tailDC) {
+            tailDC = CreateCompatibleDC(hdc);
+            tailBmp = CreateCompatibleBitmap(hdc, w, h);
+            SelectObject(tailDC, tailBmp);
+        }
+        
+        BLENDFUNCTION bf = {AC_SRC_OVER, 0, 30, 0};
+        AlphaBlend(hdc, 0, 0, w, h, tailDC, 0, 0, w, h, bf);
+        BitBlt(tailDC, 0, 0, w, h, mdc, 0, 0, SRCCOPY);
+        
+        if (totalShiftX > w * 1.2 || totalShiftY > h * 1.2) {
+            totalShiftX = 0;
+            totalShiftY = 0;
+            InvalidateRect(0, 0, 0);
+        }
+        
         ReleaseDC(0, hdc);
-        SoundThread(150 + rand() % 2000, 30 + rand() % 80, rand() % 10);
-        Sleep(20 + rand() % 30);
+        SoundThread(200 + rand() % 2000, 30 + rand() % 80, rand() % 10);
+        Sleep(15 + rand() % 20);
     }
+    
     DeleteDC(mdc);
     DeleteObject(bmp);
     return 0;
