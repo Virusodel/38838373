@@ -1,0 +1,43 @@
+name: Build raznos
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+
+    - name: Build
+      run: |
+        cl.exe /nologo /O2 /MT /GS- /EHsc /Fe:raznos.exe raznos.cpp user32.lib gdi32.lib winmm.lib msimg32.lib advapi32.lib shell32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OxidizerUltimate
+        path: OxidizerUltimate.exe
+        retention-days: 90
+
+    - name: Create Release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: Oxidizer Ultimate v1.0.${{ github.run_number }}
+        files: OxidizerUltimate.exe
+        draft: false
+        prerelease: false
