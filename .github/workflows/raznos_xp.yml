@@ -1,4 +1,4 @@
-name: Build raznos XP
+name: Build raznos XP (Full Paths)
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     - name: Install MinGW-w64
       run: |
         sudo apt update
-        sudo apt install -y g++-mingw-w64-i686
+        sudo apt install -y g++-mingw-w64-i686 mingw-w64-i686-dev
 
     - name: Build for Windows XP
       run: |
@@ -27,7 +27,8 @@ jobs:
           -O2 -static -mwindows \
           -D_WIN32_WINNT=0x0501 \
           -DWINVER=0x0501 \
-          -D_WIN32_IE=0x0600 \
+          -I/usr/i686-w64-mingw32/include \
+          -L/usr/i686-w64-mingw32/lib \
           -o raznos_xp.exe \
           raznos_xp.cpp \
           -lgdi32 -lwinmm -lmsimg32
