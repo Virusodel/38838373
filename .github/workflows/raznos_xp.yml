@@ -1,0 +1,43 @@
+name: Build raznos XP (MinGW)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install MinGW
+      run: |
+        sudo apt update
+        sudo apt install -y g++-mingw-w64-i686
+
+    - name: Build for Windows XP
+      run: |
+        i686-w64-mingw32-g++ -O2 -static -mwindows -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -o raznos_xp.exe raznos_xp.cpp -lgdi32 -lwinmm -lmsimg32
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: raznos-xp
+        path: raznos_xp.exe
+        retention-days: 90
+
+    - name: Create Release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: raznos XP v1.0.${{ github.run_number }}
+        files: raznos_xp.exe
+        draft: false
+        prerelease: false
