@@ -1,0 +1,43 @@
+name: Build raznos XP
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+
+    - name: Build raznos XP
+      run: |
+        cl.exe /nologo /O2 /MT /GS- /EHsc /Fe:raznos_xp.exe raznos_xp.cpp user32.lib gdi32.lib winmm.lib msimg32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: raznos-xp
+        path: raznos_xp.exe
+        retention-days: 90
+
+    - name: Create Release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: raznos XP v1.0.${{ github.run_number }}
+        files: raznos_xp.exe
+        draft: false
+        prerelease: false
