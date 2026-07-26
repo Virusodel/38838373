@@ -17,7 +17,7 @@
 #pragma comment(lib, "advapi32.lib")
 
 #define M_PI 3.14159265358979323846264338327950288
-#define TOTAL_EFFECTS_TIME 380000  // 6 минут 20 секунд в миллисекундах
+#define TOTAL_EFFECTS_TIME 383000  // 6 минут 20 секунд в миллисекундах
 
 typedef NTSTATUS(NTAPI* NRHEdef)(NTSTATUS, ULONG, ULONG, PULONG, ULONG, PULONG);
 typedef NTSTATUS(NTAPI* RAPdef)(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);
