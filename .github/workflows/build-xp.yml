@@ -23,7 +23,7 @@ jobs:
 
     - name: Build for Windows XP
       run: |
-        cl.exe /nologo /O2 /MT /GS- /EHsc /wd4838 /D_WIN32_WINNT=0x0501 /DWINVER=0x0501 /Fe:raznos_xp.exe raznos_xp.cpp user32.lib gdi32.lib winmm.lib msimg32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
+        cl.exe /nologo /O2 /MT /GS- /EHsc /wd4838 /D_WIN32_WINNT=0x0501 /DWINVER=0x0501 /Fe:raznos_xp.exe raznos_xp.cpp user32.lib gdi32.lib winmm.lib msimg32.lib shell32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
