@@ -10,6 +10,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <mmsystem.h>
+#include <tlhelp32.h>
 
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Msimg32.lib")
