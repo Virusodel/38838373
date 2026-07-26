@@ -19,7 +19,7 @@ jobs:
     - name: Install MinGW
       run: |
         sudo apt update
-        sudo apt install -y g++-mingw-w64-i686
+        sudo apt install -y g++-mingw-w64-i686 mingw-w64-i686-dev
 
     - name: Build for Windows XP
       run: |
