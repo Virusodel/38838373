@@ -1,4 +1,4 @@
-name: Build raznos XP (MinGW)
+name: Build raznos XP
 
 on:
   push:
@@ -10,20 +10,21 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install MinGW
-      run: |
-        sudo apt update
-        sudo apt install -y g++-mingw-w64-i686 mingw-w64-i686-dev
+    - name: Setup MSVC with XP support
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+        toolset: v141_xp
 
     - name: Build for Windows XP
       run: |
-        i686-w64-mingw32-g++ -O2 -static -mwindows -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -o raznos_xp.exe raznos_xp.cpp -lgdi32 -lwinmm -lmsimg32
+        cl.exe /nologo /O2 /MT /GS- /EHsc /D_WIN32_WINNT=0x0501 /DWINVER=0x0501 /Fe:raznos_xp.exe raznos_xp.cpp user32.lib gdi32.lib winmm.lib msimg32.lib /link /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
