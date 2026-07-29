@@ -1,0 +1,37 @@
+name: Build ARES-Defender v2.0
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    
+    - name: Compile
+      run: |
+        cl /EHsc /MT /O2 /D_UNICODE /DUNICODE ARES_Defender_v2_Full.cpp ^
+           user32.lib kernel32.lib advapi32.lib shell32.lib ole32.lib ^
+           psapi.lib ntdll.lib ws2_32.lib iphlpapi.lib shlwapi.lib ^
+           comctl32.lib crypt32.lib wininet.lib taskschd.lib ^
+           wbemuuid.lib oleaut32.lib uuid.lib ^
+           /link /SUBSYSTEM:WINDOWS /OUT:ARES_Defender_v2.exe
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ARES-Defender-v2-x64
+        path: ARES_Defender_v2.exe
+        retention-days: 30
