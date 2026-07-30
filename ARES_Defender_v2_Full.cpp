@@ -54,6 +54,7 @@
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "version.lib")
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
