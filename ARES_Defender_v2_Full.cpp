@@ -33,6 +33,8 @@
 #include <comdef.h>
 #include <Wbemidl.h>
 #include <srrestoreptapi.h>
+#include <taskschd.h>
+#include <comdef.h>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -56,6 +58,15 @@
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
+// Добавить после всех #pragma comment
+#ifndef WINTRUST_ACTION_GENERIC_VERIFY_V2
+#define WINTRUST_ACTION_GENERIC_VERIFY_V2 L"{00AAC56B-CD44-11D0-8CC2-00C04FC295EE}"
+#endif
+
+#ifndef PROCESS_PROTECTION_LEVEL_WINDOWS
+#define PROCESS_PROTECTION_LEVEL_WINDOWS 1
+#endif
 
 // ========== ВСЕ СТРУКТУРЫ ==========
 struct ProcessInfo {
@@ -334,7 +345,8 @@ bool IsFileSigned(const std::wstring& path) {
     wintrustData.pFile = &fileInfo;
     wintrustData.dwStateAction = WTD_STATEACTION_VERIFY;
     
-    GUID actionGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    GUID actionGUID;
+    CLSIDFromString(L"{00AAC56B-CD44-11D0-8CC2-00C04FC295EE}", &actionGUID);
     LONG status = WinVerifyTrust(NULL, &actionGUID, &wintrustData);
     
     wintrustData.dwStateAction = WTD_STATEACTION_CLOSE;
@@ -746,36 +758,40 @@ std::vector<StartupItem> EnumerateStartup() {
         }
     }
     CoInitialize(NULL);
-    ITaskScheduler* pScheduler = NULL;
-    if (CoCreateInstance(CLSID_CTaskScheduler, NULL, CLSCTX_INPROC_SERVER, IID_ITaskScheduler, (void**)&pScheduler) == S_OK) {
-        IEnumWorkItems* pEnum = NULL;
-        if (pScheduler->Enum(&pEnum) == S_OK) {
-            LPWSTR* pNames = NULL;
-            DWORD count = 0;
-            while (pEnum->Next(10, &pNames, &count) == S_OK && count > 0) {
-                for (DWORD j = 0; j < count; j++) {
-                    ITask* pTask = NULL;
-                    if (pScheduler->Activate(pNames[j], IID_ITask, (IUnknown**)&pTask) == S_OK) {
-                        StartupItem item;
-                        item.name = pNames[j]; item.location = L"Task Scheduler";
-                        item.enabled = true; item.isMalicious = false; item.riskScore = 0.0;
-                        LPWSTR appName = NULL;
-                        if (pTask->GetApplicationName(&appName) == S_OK && appName) {
-                            item.path = appName; item.hash = GetFileMD5(appName);
-                            CoTaskMemFree(appName);
+ITaskService* pService = NULL;
+if (CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER, IID_ITaskService, (void**)&pService) == S_OK) {
+    if (pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t()) == S_OK) {
+        ITaskFolder* pRootFolder = NULL;
+        if (pService->GetFolder(_bstr_t(L"\\"), &pRootFolder) == S_OK) {
+            IRegisteredTaskCollection* pTasks = NULL;
+            if (pRootFolder->GetTasks(0, &pTasks) == S_OK) {
+                LONG count = 0;
+                pTasks->get_Count(&count);
+                for (LONG i = 1; i <= count; i++) {
+                    IRegisteredTask* pTask = NULL;
+                    if (pTasks->get_Item(_variant_t(i), &pTask) == S_OK) {
+                        BSTR taskName = NULL;
+                        if (pTask->get_Name(&taskName) == S_OK) {
+                            StartupItem item;
+                            item.name = taskName;
+                            item.location = L"Task Scheduler";
+                            item.enabled = true;
+                            item.isMalicious = false;
+                            item.riskScore = 0.0;
+                            result.push_back(item);
+                            SysFreeString(taskName);
                         }
-                        result.push_back(item);
                         pTask->Release();
                     }
-                    CoTaskMemFree(pNames[j]);
                 }
-                CoTaskMemFree(pNames);
+                pTasks->Release();
             }
-            pEnum->Release();
+            pRootFolder->Release();
         }
-        pScheduler->Release();
     }
-    CoUninitialize();
+    pService->Release();
+}
+CoUninitialize();
     return result;
 }
 
@@ -810,16 +826,21 @@ bool RemoveStartupItem(const std::wstring& name, const std::wstring& location) {
             return DeleteFileW(fullPath.c_str()) != 0;
         }
     } else if (location.find(L"Task Scheduler") != std::wstring::npos) {
-        CoInitialize(NULL);
-        ITaskScheduler* pScheduler = NULL;
-        if (CoCreateInstance(CLSID_CTaskScheduler, NULL, CLSCTX_INPROC_SERVER, IID_ITaskScheduler, (void**)&pScheduler) == S_OK) {
-            HRESULT hr = pScheduler->Delete(name.c_str());
-            pScheduler->Release();
-            CoUninitialize();
-            return hr == S_OK;
+    CoInitialize(NULL);
+    ITaskService* pService = NULL;
+    HRESULT hr = CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER, IID_ITaskService, (void**)&pService);
+    if (hr == S_OK) {
+        if (pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t()) == S_OK) {
+            ITaskFolder* pRootFolder = NULL;
+            if (pService->GetFolder(_bstr_t(L"\\"), &pRootFolder) == S_OK) {
+                hr = pRootFolder->DeleteTask(_bstr_t(name.c_str()), 0);
+                pRootFolder->Release();
+            }
         }
-        CoUninitialize();
-        return false;
+        pService->Release();
+    }
+    CoUninitialize();
+    return hr == S_OK;
     }
     return false;
 }
