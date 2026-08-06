@@ -13,11 +13,21 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
-    # ========== УСТАНОВКА OPENSSL ==========
-    - name: Install OpenSSL
+    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ VCPKG ==========
+    - name: Install OpenSSL via vcpkg
       run: |
-        choco install openssl -y
-        echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
+        vcpkg install openssl:x64-windows-static
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+    
+    # ========== ОТЛАДКА: ПРОВЕРКА ПУТЕЙ ==========
+    - name: Debug OpenSSL paths
+      run: |
+        echo "=== vcpkg installed files ==="
+        dir C:\vcpkg\installed\x64-windows-static\include
+        dir C:\vcpkg\installed\x64-windows-static\lib
+        echo "=== Chocolatey OpenSSL ==="
+        dir "C:\Program Files\OpenSSL\include" 2>nul || echo "Not found"
+        dir "C:\Program Files\OpenSSL\lib" 2>nul || echo "Not found"
     
     # ========== СБОРКА ШАБЛОНА (C++ C++17 + OpenSSL) ==========
     - name: Setup MSVC
@@ -25,7 +35,7 @@ jobs:
     
     - name: Build Template
       run: |
-        cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\libssl.lib" "C:\Program Files\OpenSSL\lib\libcrypto.lib"
+        cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\vcpkg\installed\x64-windows-static\lib\ssl.lib" "C:\vcpkg\installed\x64-windows-static\lib\crypto.lib"
         dir template.exe
     
     # ========== СБОРКА БИЛДЕРА (C#) ==========
