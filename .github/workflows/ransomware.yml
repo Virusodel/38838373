@@ -13,21 +13,19 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
-    # ========== СБОРКА ОПЕНССЛ ==========
-    - name: Setup OpenSSL
+    # ========== УСТАНОВКА OPENSSL ==========
+    - name: Install OpenSSL
       run: |
         choco install openssl -y
         echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
-        echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL\include" >> $env:GITHUB_ENV
-        echo "OPENSSL_LIBRARIES=C:\Program Files\OpenSSL\lib" >> $env:GITHUB_ENV
     
-    # ========== СБОРКА ШАБЛОНА (C++) ==========
+    # ========== СБОРКА ШАБЛОНА (C++ C++17 + OpenSSL) ==========
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
     
     - name: Build Template
       run: |
-        cl /O2 /MT /EHsc /std:c++17 /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\libssl.lib" "C:\Program Files\OpenSSL\lib\libcrypto.lib"
+        cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\libssl.lib" "C:\Program Files\OpenSSL\lib\libcrypto.lib"
         dir template.exe
     
     # ========== СБОРКА БИЛДЕРА (C#) ==========
