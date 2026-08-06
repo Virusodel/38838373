@@ -13,7 +13,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
-    # ========== КЭШ VCPKG ==========
+    # ========== КЭШ VCPKG (ФИКСИРОВАННЫЙ КЛЮЧ) ==========
     - name: Cache vcpkg
       uses: actions/cache@v3
       id: cache-vcpkg
@@ -22,9 +22,9 @@ jobs:
           C:\vcpkg
           C:\vcpkg\installed
           C:\Users\runneradmin\AppData\Local\vcpkg\archives
-        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+        key: vcpkg-openssl-${{ runner.os }}
         restore-keys: |
-          vcpkg-${{ runner.os }}-
+          vcpkg-openssl-${{ runner.os }}
     
     # ========== УСТАНОВКА OPENSSL ==========
     - name: Install OpenSSL via vcpkg
