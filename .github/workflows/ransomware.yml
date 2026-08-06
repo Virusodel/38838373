@@ -26,13 +26,13 @@ jobs:
         restore-keys: |
           vcpkg-${{ runner.os }}-
     
-    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ VCPKG ==========
+    # ========== УСТАНОВКА OPENSSL ==========
     - name: Install OpenSSL via vcpkg
       if: steps.cache-vcpkg.outputs.cache-hit != 'true'
       run: |
         vcpkg install openssl:x64-windows-static
     
-    # ========== СБОРКА ШАБЛОНА (C++ C++17 + OpenSSL) ==========
+    # ========== СБОРКА ШАБЛОНА ==========
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
     
@@ -46,8 +46,21 @@ jobs:
             exit 1
         }
         
-        # Собираем
-        cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\vcpkg\installed\x64-windows-static\lib\ssl.lib" "C:\vcpkg\installed\x64-windows-static\lib\crypto.lib"
+        # Находим пути к lib файлам
+        $ssl_lib = Get-ChildItem -Recurse "C:\vcpkg\installed\x64-windows-static" -Filter "ssl.lib" | Select-Object -First 1
+        $crypto_lib = Get-ChildItem -Recurse "C:\vcpkg\installed\x64-windows-static" -Filter "crypto.lib" | Select-Object -First 1
+        
+        if (-not $ssl_lib) {
+            Write-Host "ssl.lib not found! Searching all .lib files..."
+            Get-ChildItem -Recurse "C:\vcpkg\installed\x64-windows-static" -Filter "*.lib" | Where-Object { $_.Name -match "ssl|crypto" } | Format-Table -AutoSize
+            exit 1
+        }
+        
+        Write-Host "Found ssl.lib at: $($ssl_lib.FullName)"
+        Write-Host "Found crypto.lib at: $($crypto_lib.FullName)"
+        
+        # Собираем с найденными путями
+        cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "$($ssl_lib.FullName)" "$($crypto_lib.FullName)"
         
         if (Test-Path template.exe) {
             Write-Host "=== Build SUCCESS ==="
@@ -57,7 +70,7 @@ jobs:
             exit 1
         }
     
-    # ========== СБОРКА БИЛДЕРА (C#) ==========
+    # ========== СБОРКА БИЛДЕРА ==========
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
