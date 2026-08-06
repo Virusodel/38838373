@@ -45,20 +45,19 @@ jobs:
             exit 1
         }
         
-        # Правильные имена: libssl.lib и libcrypto.lib
         $ssl_lib = "C:\vcpkg\installed\x64-windows-static\lib\libssl.lib"
         $crypto_lib = "C:\vcpkg\installed\x64-windows-static\lib\libcrypto.lib"
         
         if (-not (Test-Path $ssl_lib)) {
-            Write-Host "libssl.lib not found at $ssl_lib!"
-            Get-ChildItem -Recurse "C:\vcpkg\installed\x64-windows-static\lib" -Filter "*.lib" | Where-Object { $_.Name -match "ssl|crypto" } | Format-Table -AutoSize
+            Write-Host "libssl.lib not found!"
             exit 1
         }
         
         Write-Host "Found libssl.lib at: $ssl_lib"
         Write-Host "Found libcrypto.lib at: $crypto_lib"
         
-        cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "$ssl_lib" "$crypto_lib"
+        # ДОБАВЛЯЕМ ws2_32.lib (Winsock) — нужен для OpenSSL на Windows
+        cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib ws2_32.lib "$ssl_lib" "$crypto_lib"
         
         if (Test-Path template.exe) {
             Write-Host "=== Build SUCCESS ==="
