@@ -78,9 +78,12 @@ jobs:
       run: |
         msbuild builder.csproj /p:Configuration=Release /p:Platform="Any CPU"
         
-        if (Test-Path "bin\Release\RansomwareBuilder.exe") {
+        # Проверяем правильный путь где реально создается файл
+        if (Test-Path "bin\Any CPU\Release\net48\builder.exe") {
             Write-Host "=== Build SUCCESS ==="
-            Get-ChildItem "bin\Release\RansomwareBuilder.exe" | Format-Table -AutoSize
+            Get-ChildItem "bin\Any CPU\Release\net48\builder.exe" | Format-Table -AutoSize
+            # Копируем в корень с правильным именем для загрузки
+            Copy-Item "bin\Any CPU\Release\net48\builder.exe" "RansomwareBuilder_v6_Full.exe"
         } else {
             Write-Host "=== Build FAILED ==="
             exit 1
@@ -90,4 +93,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: RansomwareBuilder_v6_Full
-        path: bin\Release\RansomwareBuilder.exe
+        path: RansomwareBuilder_v6_Full.exe
