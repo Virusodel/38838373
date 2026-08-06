@@ -21,9 +21,8 @@ jobs:
     - name: Install dependencies
       run: |
         pip install pyinstaller pycryptodome pillow
-        pip install --upgrade pyinstaller
         
-    - name: Build Builder
+    - name: Build Builder with PyInstaller embedded
       run: |
         pyinstaller --onefile --noconsole --name "RansomwareBuilder_v4" builder.py
         
