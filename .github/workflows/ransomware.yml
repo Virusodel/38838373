@@ -30,12 +30,11 @@ jobs:
         restore-keys: |
           vcpkg-${{ runner.os }}-
     
-    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ VCPKG (с кэшем) ==========
+    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ VCPKG ==========
     - name: Install OpenSSL via vcpkg
       if: steps.cache-vcpkg.outputs.cache-hit != 'true'
       run: |
         vcpkg install openssl:x64-windows-static
-        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
     
     # ========== КЭШ CHOCOLATEY OPENSSL ==========
     - name: Cache Chocolatey OpenSSL
@@ -47,74 +46,78 @@ jobs:
         restore-keys: |
           openssl-choco-${{ runner.os }}-
     
-    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ CHOCOLATEY (если нет в кэше) ==========
+    # ========== УСТАНОВКА OPENSSL ЧЕРЕЗ CHOCOLATEY ==========
     - name: Install OpenSSL via Chocolatey
       if: steps.cache-choco-openssl.outputs.cache-hit != 'true'
       run: |
         choco install openssl -y --force
-        echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
     
-    # ========== ПОИСК БИБЛИОТЕК (отладка) ==========
+    # ========== ПОИСК БИБЛИОТЕК ==========
     - name: Find OpenSSL libs
       run: |
-        echo "=== Looking for OpenSSL libs ==="
-        if exist "C:\Program Files\OpenSSL\lib" dir "C:\Program Files\OpenSSL\lib" /s
-        if exist "C:\Program Files\OpenSSL\lib\VC" dir "C:\Program Files\OpenSSL\lib\VC" /s
-        if exist "C:\vcpkg\installed\x64-windows-static\lib" dir "C:\vcpkg\installed\x64-windows-static\lib"
-        echo "=== Looking for include ==="
-        if exist "C:\Program Files\OpenSSL\include" dir "C:\Program Files\OpenSSL\include"
-        if exist "C:\vcpkg\installed\x64-windows-static\include" dir "C:\vcpkg\installed\x64-windows-static\include"
+        Write-Host "=== Looking for OpenSSL libs ==="
+        if (Test-Path "C:\Program Files\OpenSSL\lib") {
+            Write-Host "=== C:\Program Files\OpenSSL\lib ==="
+            Get-ChildItem -Recurse "C:\Program Files\OpenSSL\lib" | Format-Table -AutoSize
+        }
+        if (Test-Path "C:\vcpkg\installed\x64-windows-static\lib") {
+            Write-Host "=== C:\vcpkg\installed\x64-windows-static\lib ==="
+            Get-ChildItem "C:\vcpkg\installed\x64-windows-static\lib" | Format-Table -AutoSize
+        }
+        Write-Host "=== Looking for include ==="
+        if (Test-Path "C:\Program Files\OpenSSL\include") {
+            Write-Host "=== C:\Program Files\OpenSSL\include ==="
+            Get-ChildItem "C:\Program Files\OpenSSL\include" | Format-Table -AutoSize
+        }
+        if (Test-Path "C:\vcpkg\installed\x64-windows-static\include") {
+            Write-Host "=== C:\vcpkg\installed\x64-windows-static\include ==="
+            Get-ChildItem "C:\vcpkg\installed\x64-windows-static\include" | Format-Table -AutoSize
+        }
     
-    # ========== СБОРКА ШАБЛОНА (C++ C++17 + OpenSSL) ==========
+    # ========== СБОРКА ШАБЛОНА ==========
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
     
     - name: Build Template
       run: |
-        echo "=== Trying to compile template.cpp ==="
+        Write-Host "=== Trying to compile template.cpp ==="
         
-        # Пробуем Chocolatey OpenSSL
-        if exist "C:\Program Files\OpenSSL\include\openssl\evp.h" (
-          echo "Found OpenSSL in C:\Program Files\OpenSSL"
-          
-          if exist "C:\Program Files\OpenSSL\lib\libssl.lib" (
-            echo "Using libssl.lib (Chocolatey)"
+        # Пробуем Chocolatey OpenSSL (libssl.lib)
+        if ((Test-Path "C:\Program Files\OpenSSL\include\openssl\evp.h") -and (Test-Path "C:\Program Files\OpenSSL\lib\libssl.lib")) {
+            Write-Host "Using libssl.lib (Chocolatey)"
             cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\libssl.lib" "C:\Program Files\OpenSSL\lib\libcrypto.lib"
-          ) elseif exist "C:\Program Files\OpenSSL\lib\ssl.lib" (
-            echo "Using ssl.lib (Chocolatey)"
+        }
+        # Пробуем Chocolatey OpenSSL (ssl.lib)
+        elseif ((Test-Path "C:\Program Files\OpenSSL\include\openssl\evp.h") -and (Test-Path "C:\Program Files\OpenSSL\lib\ssl.lib")) {
+            Write-Host "Using ssl.lib (Chocolatey)"
             cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\ssl.lib" "C:\Program Files\OpenSSL\lib\crypto.lib"
-          ) elseif exist "C:\Program Files\OpenSSL\lib\VC\x64\MD\libssl.lib" (
-            echo "Using VC libssl.lib (Chocolatey)"
-            cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\VC\x64\MD\libssl.lib" "C:\Program Files\OpenSSL\lib\VC\x64\MD\libcrypto.lib"
-          ) else (
-            echo "OpenSSL libs not found in Chocolatey path!"
-            dir "C:\Program Files\OpenSSL" /s
-            exit /b 1
-          )
-        ) elseif exist "C:\vcpkg\installed\x64-windows-static\include\openssl\evp.h" (
-          echo "Found OpenSSL in vcpkg"
-          if exist "C:\vcpkg\installed\x64-windows-static\lib\ssl.lib" (
-            echo "Using ssl.lib (vcpkg)"
+        }
+        # Пробуем vcpkg OpenSSL
+        elseif ((Test-Path "C:\vcpkg\installed\x64-windows-static\include\openssl\evp.h") -and (Test-Path "C:\vcpkg\installed\x64-windows-static\lib\ssl.lib")) {
+            Write-Host "Using ssl.lib (vcpkg)"
             cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\vcpkg\installed\x64-windows-static\lib\ssl.lib" "C:\vcpkg\installed\x64-windows-static\lib\crypto.lib"
-          ) else (
-            echo "OpenSSL libs not found in vcpkg path!"
-            dir "C:\vcpkg\installed\x64-windows-static\lib"
-            exit /b 1
-          )
-        ) else (
-          echo "OpenSSL not found!"
-          exit /b 1
-        )
+        }
+        # Пробуем VC версию
+        elseif ((Test-Path "C:\Program Files\OpenSSL\include\openssl\evp.h") -and (Test-Path "C:\Program Files\OpenSSL\lib\VC\x64\MD\libssl.lib")) {
+            Write-Host "Using VC libssl.lib (Chocolatey)"
+            cl /O2 /MT /EHsc /std:c++17 /I"C:\Program Files\OpenSSL\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib "C:\Program Files\OpenSSL\lib\VC\x64\MD\libssl.lib" "C:\Program Files\OpenSSL\lib\VC\x64\MD\libcrypto.lib"
+        }
+        else {
+            Write-Host "OpenSSL libs not found!"
+            Get-ChildItem -Recurse "C:\Program Files\OpenSSL" | Format-Table -AutoSize
+            Get-ChildItem -Recurse "C:\vcpkg\installed" | Format-Table -AutoSize
+            exit 1
+        }
         
-        if exist template.exe (
-          echo "=== Build SUCCESS ==="
-          dir template.exe
-        ) else (
-          echo "=== Build FAILED ==="
-          exit /b 1
-        )
+        if (Test-Path template.exe) {
+            Write-Host "=== Build SUCCESS ==="
+            Get-ChildItem template.exe | Format-Table -AutoSize
+        } else {
+            Write-Host "=== Build FAILED ==="
+            exit 1
+        }
     
-    # ========== СБОРКА БИЛДЕРА (C#) ==========
+    # ========== СБОРКА БИЛДЕРА ==========
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -123,7 +126,7 @@ jobs:
     - name: Build Builder
       run: |
         dotnet build builder.csproj --configuration Release
-        dir bin/Release/net48/RansomwareBuilder.exe
+        Get-ChildItem bin/Release/net48/RansomwareBuilder.exe | Format-Table -AutoSize
     
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
