@@ -70,10 +70,21 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
     
+    - name: Restore NuGet packages
+      run: |
+        dotnet restore builder.csproj
+    
     - name: Build Builder
       run: |
         msbuild builder.csproj /p:Configuration=Release /p:Platform="Any CPU"
-        Get-ChildItem bin\Release\RansomwareBuilder.exe | Format-Table -AutoSize
+        
+        if (Test-Path "bin\Release\RansomwareBuilder.exe") {
+            Write-Host "=== Build SUCCESS ==="
+            Get-ChildItem "bin\Release\RansomwareBuilder.exe" | Format-Table -AutoSize
+        } else {
+            Write-Host "=== Build FAILED ==="
+            exit 1
+        }
     
     - name: Upload Builder EXE
       uses: actions/upload-artifact@v4
