@@ -3,7 +3,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyTitle>ARES-7 Ransomware Builder</AssemblyTitle>
     <AssemblyDescription>v6.0 C++ Builder</AssemblyDescription>
     <RootNamespace>RansomwareBuilder</RootNamespace>
